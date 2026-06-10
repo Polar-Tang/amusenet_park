@@ -1,0 +1,19 @@
+{
+  "dependencies": {
+    "@quenty/adorneeboundingbox": "^8.34.0",
+    "@quenty/adorneedata": "^7.22.2",
+    "@quenty/binder": "^14.25.2",
+    "@quenty/camera": "^14.36.0",
+    "@quenty/camerastoryutils": "^10.17.0",
+    "@quenty/cooldown": "^11.26.2",
+    "@quenty/humanoidtracker": "^13.21.2",
+    "@quenty/ik": "^15.34.2",
+    "@quenty/maid": "^3.5.0",
+    "@quenty/pathfindingutils": "^10.12.2",
+    "@quenty/physicsutils": "^8.20.0",
+    "@quenty/ragdoll": "^15.33.1",
+    "@quenty/servicebag": "^11.13.1",
+    "@quenty/soundplayer": "^7.23.2",
+    "@quenty/sounds": "^10.13.0"
+  }
+}

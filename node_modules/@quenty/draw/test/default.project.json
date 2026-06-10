@@ -1,0 +1,14 @@
+{
+  "name": "DrawTest",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "$properties": {
+        "LoadStringEnabled": true
+      },
+      "draw": {
+        "$path": ".."
+      }
+    }
+  }
+}

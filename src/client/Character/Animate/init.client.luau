@@ -1,0 +1,10 @@
+-- Intentionally empty.
+--
+-- This stub exists only so Roblox does not insert its own default "Animate"
+-- LocalScript into the character (the engine skips it when a script named
+-- "Animate" is already present). The real animation logic lives in
+-- src/client/UI/Animate.luau and is driven by the AnimationHandler binder,
+-- required + task.spawn'd from ServiceRoot.client.
+--
+-- The PlayEmote BindableFunction child stays parented here so external emote
+-- invokers can still reach character.Animate.PlayEmote.

@@ -1,0 +1,14 @@
+{
+  "name": "AccelTweenTest",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "$properties": {
+        "LoadStringEnabled": true
+      },
+      "acceltween": {
+        "$path": ".."
+      }
+    }
+  }
+}
