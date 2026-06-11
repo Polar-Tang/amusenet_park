@@ -1,7 +1,15 @@
+
 local Debris = game:GetService("Debris")
 local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+-- COmbat config is a god-table required by server and client as well, but there are modules that shouldn't be required by client
+if RunService:IsClient() then
+	return {}
+end
+
 local Ragdoll = require(ReplicatedStorage.Nevermore.Quenty.ragdoll.Server.Classes.Ragdoll)
 local roll_vfx = require(script.Parent.roll_vfx)
 

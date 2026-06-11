@@ -135,6 +135,11 @@ function AnimationHandler:Init(animationContainer: Instance)
 	self._initialized = true
 end
 
+function AnimationHandler:IsInitialized()
+	return self._initialized 
+	
+end
+
 --[[
 If takes state false does nothing, returns nil
 If takes state false and animation name, stop it, returns nil

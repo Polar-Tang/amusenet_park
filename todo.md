@@ -87,12 +87,432 @@ recharges de weapon is a brand new ability of the weapon and it's keycode is r, 
 - cada kill te da una experience, si es doble kill, triple kill es más
 [] pool the quests, hay una tabla con tittle, description and cb la cb puede usar distintas apis para checkear el su progreso
 - quest diarias (cada 24 horas) y quests semanales (should make it long live in per server and store them in DS)
-- Adding new quest to test, also create a component in src/client/UI/RoactUI that connects to QuestProgressRemote and share the quests list and update with its progession
+- Adding new quest to test, also create a component in src/client/UI/RoactUI that connects to QuestProgressRemote and share the quests list and update with its progession. If each quests require a different text you can consider move the quests pool to replicated storage so client and server can read it. 
+
+
 
 ### HACER BOTS
 NPCs que tienen un patrol y utilizan la misma api que aim asistant para saber a que player disparar, los bots tienen un binder en el client que simula llamar shot desde una camara donde el raycast da perfecto al player aunque en realidad no muevan la camara
+We need to create a new really complex binder, their tag is NPC. And it will go at src/myNeverMoreS/npc/src/Client/Binder, the npc state machine should be in client and not server for better perfomance. But we may need a Server binder for npc in order of tagging the Armed server version
+- new method
+  - Tagged the NPC with armed, creates maid and the needed fields
+- Their Init method:
+  It finds first child of class Tool and equip it, they should do the necesary to init Weapon, confirm if we can use weapon without animationHandler
+- The start method
+We should create a state machine, here's a real example of a binder using the state machine
+```
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Maid = require(ReplicatedStorage.Nevermore.Quenty.maid.Shared.Maid)
+local StateMachine = require(ReplicatedStorage.StateMachine)
+local setCTX = require(script.Parent.helpers.setCtx)
+local StatesFolder = ReplicatedStorage.NPC.States
+local StateMachineBinder = {}
+StateMachineBinder.ServiceName = "StateMachine"
+StateMachineBinder.__index = StateMachineBinder
 
+function StateMachineBinder.new(char: Model, serviceBag)
+	local self = setmetatable({}, StateMachineBinder)
+
+	self.char = char
+	self.state = nil
+	self._initialized = false
+	self._players = {}
+	self.serviceBag = serviceBag
+	self.maid = Maid.new()
+
+	return self
+end
+
+-- this method is called on nearby players
+function StateMachineBinder:Init(player)
+	-- the state machine is like the npc's brain
+
+	local state = StateMachine.new(
+		"Idle",
+		StateMachine:LoadDirectory(StatesFolder),
+		setCTX(self.char, self.serviceBag, player, self.maid)
+	)
+	self.state = state
+	self._initialized = true
+	return self
+end
+
+function StateMachineBinder:Destroy()
+	-- TODO: test this
+	self.maid:DoCleaning()
+	if self.state then
+		self.state:Destroy()
+	end
+end
+return StateMachineBinder
+```
+We use ReplicatedStorage.StateMachine, it loads a table with the context used throguh the state machines and string matching the state where it should start
+In our example the directore shared.NPC looks like this:
+```
+.
+├── Controllers
+│   ├── 1
+│   ├── EatController
+│   │   └── EatController.luau
+│   ├── MovementController
+│   │   └── MovementController.luau
+│   ├── PetAnimatorController
+│   │   └── PetAnimatorController.luau
+│   ├── SoundController
+│   │   └── SoundController.luau
+│   └── TargetController
+│       └── TargetController.luau
+├── Overhead.rbxm
+├── Servicies
+│   ├── BillboardService
+│   │   └── BillboardService.luau
+│   └── PlotService
+│       ├── FenceBounds.luau
+│       └── init.luau
+├── States
+│   ├── Eat.luau
+│   ├── Idle.luau
+│   └── Patrol.luau
+└── Transitions
+    ├── FinnishEating.luau
+    ├── FinnishPatrol.luau
+    ├── StartEating.luau
+    └── StartPatrol.luau
+```
+The state are classes that longs as well as some transition to another state returns true and controllers are logic used along the state meachin to split responsability and keep the code clean. Here's the movementController:
+```
+local RS = game:GetService("ReplicatedStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local packages = RS.Nevermore.Quenty
+local NpcFighterTypes = require(ReplicatedStorage.Nevermore.Custom.NPCFighter.src.Shared.utils.NpcFighterTypes)
+local petData = require(ReplicatedStorage.Nevermore.Custom.npc.src.Shared.Binder.helpers.petData)
+local Maid = require(ReplicatedStorage.Nevermore.Quenty.maid.Shared.Maid)
+local Promise = require(ReplicatedStorage.Nevermore.Quenty.promise.Shared.Promise)
+local BaseObject = require(packages.baseobject.Shared.BaseObject)
+
+local MovementController = setmetatable({}, BaseObject)
+MovementController.__index = MovementController
+
+function MovementController.new(data: NpcFighterTypes.controllerdataInint, serviceBag: any, player)
+	local self = setmetatable(data, MovementController)
+	self._currentMovePromise = nil
+	local petName = self.pet:GetAttribute("petName")
+	self.speed = assert(petData[petName], "invalid petName").walkSpeed
+	self._maid = Maid.new()
+
+	-- IMPORTANT: `data.maid` (inherited onto this table) is the *binder* maid -- it
+	-- owns every controller plus the pet's AncestryChanged teardown. This controller
+	-- treats `self.maid` as its own move-scratch maid and DoCleaning()s it (see
+	-- MoveTo's :Finally and _jumpToWaypoint), which would tear down its sibling
+	-- controllers -> pet:Destroy() -> the pet vanishes mid-move. Own a private maid
+	-- so move cleanup never reaches the binder maid.
+	self.maid = Maid.new()
+
+	-- Assume the pet has a Humanoid
+	local humanoid = self.pet:WaitForChild("Humanoid")
+	if humanoid then
+		humanoid.PlatformStand = false
+		humanoid.WalkSpeed = self.speed
+	end
+	self.humanoid = humanoid
+	self.maid_waypoints = Maid.new()
+	self.maid:GiveTask(self.maid_waypoints)
+	return self
+end
+
+-- constsants
+local GRAVITY = Vector3.new(0, -workspace.Gravity, 0)
+local T = 0.5 -- use a fixed time for the ball to reach the target
+
+function MovementController._jumpToWaypoint(
+	self: NpcFighterTypes.MovementController,
+	targetPosition: Vector3,
+	onComplete
+)
+	self.maid_waypoints:DoCleaning()
+
+	local startPosition = self.hrp.Position
+
+	--V1 = P1 - P0 - 0.5*G*T^2/T
+	local initialVelocity = (targetPosition - startPosition - 0.5 * GRAVITY * T ^ 2) / T
+	local t = 0
+	local moveConn
+	moveConn = RunService.Heartbeat:Connect(function(deltaTime)
+		t += deltaTime
+
+		if t > T then
+			onComplete(true)
+			moveConn:Disconnect()
+			return
+		end
+
+		--// s = s0 + v0*t + 0.5*a*t^2
+		local newPos = startPosition + (initialVelocity * t) + 0.5 * GRAVITY * (t ^ 2)
+
+		self.pet:MoveTo(newPos)
+	end)
+	self.maid:GiveTask(moveConn)
+end
+
+function MovementController.Stop(self: NpcFighterTypes.MovementController)
+	self._maid:DoCleaning()
+	self.isMoving = false
+	if self.animationHandler then
+		self.animationHandler:LoadAnimation(false, "walk")
+	end
+end
+
+function MovementController.getAnimHandler(self: NpcFighterTypes.MovementController)
+	local animHandler = self.animationHandler
+	if animHandler then
+		return animHandler
+	end
+	local BinderProvider = _G.ServiceBag:GetService(_G.BinderProvider)
+	local AnimationBinder = BinderProvider:Get("AnimationHandler")
+	self.animationHandler = AnimationBinder:Get(self.pet)
+	return self.animationHandler
+end
+
+function MovementController.ForgotPath(self: NpcFighterTypes.MovementController)
+	if self._currentMovePromise then
+		self._currentMovePromise:Destroy()
+	end
+end
+
+function MovementController.MoveTo(self: NpcFighterTypes.MovementController, path: Path)
+	self._maid:DoCleaning()
+	self._currentMovePromise = Promise.new(function(resolve, reject)
+		local waypoints = path:GetWaypoints()
+
+		if #waypoints == 0 then
+			resolve()
+			return
+		end
+
+		local animHandler = self:getAnimHandler()
+		-- Not very sure why Promise defer does run after maid:DoCleaning but this fix it
+		local status = pcall(function()
+			animHandler:LoadAnimation(true, "walk")
+		end)
+		if not status then
+			reject()
+			self:Destroy()
+			return
+		end
+
+		self.isMoving = true
+
+		local currentIndex = 1
+		local function moveNext()
+			-- clean previous move connections and promises
+			if not self.isMoving then
+				resolve()
+				return
+			end
+			if currentIndex > #waypoints then
+				animHandler:LoadAnimation(false, "walk")
+				self.isMoving = false
+				resolve()
+				self.maid_waypoints:DoCleaning()
+				return
+			end
+
+			local waypoint = waypoints[currentIndex]
+
+			self:_moveToWaypoint(waypoint.Position, function(reached)
+				if reached then
+					currentIndex += 1
+					moveNext()
+				else
+					self:_jumpToWaypoint(waypoint.Position, function(reached)
+						if reached then
+							currentIndex += 1
+							moveNext()
+						else
+							reject("Failed to reach waypoint")
+						end
+					end)
+				end
+			end)
+		end
+		moveNext()
+	end):Finally(function(...): ...any
+		self.maid:DoCleaning()
+	end)
+	return self._currentMovePromise
+end
+
+function MovementController._moveToWaypoint(
+	self: NpcFighterTypes.MovementController,
+	targetPosition: Vector3,
+	onComplete: (boolean) -> ()
+)
+	self.maid_waypoints:DoCleaning()
+
+	task.defer(function()
+		local timer
+		local time_out = Promise.new(function(resolve, reject)
+			local t = 0
+
+			timer = RunService.Heartbeat:Connect(function(dt)
+				t += dt
+				if t >= 1 then
+					resolve()
+				end
+			end)
+		end)
+			:Then(function()
+				onComplete(false)
+				timer:Disconnect()
+			end)
+			:Finally(function(...): ...any
+				timer:Disconnect()
+			end)
+			:Catch(function(...): ...any
+				print("rejeccted")
+				timer:Disconnect()
+			end)
+
+		self.maid_waypoints:GiveTask(timer)
+		local conn = self.humanoid.MoveToFinished:Once(function(reach)
+			onComplete(reach)
+		end)
+		self.maid_waypoints:GivePromise(time_out)
+		self.maid_waypoints:GiveTask(conn)
+
+		self.humanoid:MoveTo(targetPosition)
+	end)
+end
+
+function MovementController.DestroyNPC(self: NpcFighterTypes.MovementController)
+	self._maid:DoCleaning()
+	self.pet:Destroy()
+	self.isMoving = false
+end
+
+function MovementController.Destroy(self: NpcFighterTypes.MovementController)
+	self._maid:DoCleaning()
+	self.maid:DoCleaning()
+	self.pet:Destroy()
+	self.isMoving = false
+end
+
+local TweenService = game:GetService("TweenService")
+
+local LOOK_TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+function MovementController.LookTo(self: NpcFighterTypes.MovementController, to: Vector3)
+	local currentCFrame = self.hrp.CFrame
+	local targetCFrame = CFrame.lookAt(currentCFrame.Position, to)
+
+	local tween = TweenService:Create(self.hrp, LOOK_TWEEN_INFO, {
+		CFrame = targetCFrame,
+	})
+
+	self._maid:GiveTask(tween)
+
+	tween:Play()
+
+	return tween
+end
+
+return MovementController
+```
+setCtx do create the tables for the controlles and give them to a gobal maid src/myNeverMoreS/npc/src/Shared/Binder/helpers/setCtx.luau. An state looks like this:
+```
+local ReplicatedSorage = game:GetService("ReplicatedStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StateMachine = require(ReplicatedSorage.StateMachine)
+local utils = require(ReplicatedStorage.utils.utils)
+
+local State = StateMachine.State
+
+local Idle = State.new("Idle")
+
+Idle.Transitions = {
+	require(script.Parent.Parent.Transitions.StartPatrol),
+	require(ReplicatedSorage.NPC.Transitions.StartEating),
+}
+
+function Idle:OnInit(data)
+	-- runs once the state is created
+end
+
+function Idle:OnEnter(data)
+-- runs once we enter the state
+	data.lastIdleTime = data.timer
+end
+
+function Idle:OnHeartbeat(data, deltatime)
+	data.timer += deltatime
+end
+
+return Idle
+
+```
+and transitions looks like this:
+```
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RobloxStateMachine = require(ReplicatedStorage.StateMachine)
+
+local Transition = RobloxStateMachine.Transition
+
+local StartPatrol = Transition.new("Patrol")
+
+function StartPatrol:OnDataChanged(data)
+	local timeSinceLastPatrol = data.timer - data.lastPatrolTime
+	if timeSinceLastPatrol >= data.patrol_interval then
+		return true
+	end
+	return false
+end
+
+return StartPatrol
+```
+On data changed runs onHearbeat because we are changing data.timer. As StartPatrol is a transition at Idle.Transition it will transition to the Patrol state.
+So our bots will be have Patrol, Attacking and Idle. they start in patrol, do patrol to a part (workspace.goal_*), these pats are also tagged as NPC_goals, add this tag to constants. On patrol enter it checks whether there's already a goal in the context, and if its already closer enough pick a new random goal and create a path with pathFinder to reach its goal (the object domain for this is goalController), returns this goal and give it to movementController
+```
+local ReplicatedSorage = game:GetService("ReplicatedStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local StateMachine = require(ReplicatedSorage.StateMachine)
+local NpcFighterTypes = require(ReplicatedStorage.Nevermore.Custom.NPCFighter.src.Shared.utils.NpcFighterTypes)
+
+local State = StateMachine.State
+local Following = State.new("Following")
+
+function Following:OnEnter(data) end
+
+function Following:OnHeartbeat(data: NpcFighterTypes.petStateCtx, deltaTime)
+	data.timer += deltaTime
+	if data.timer - data.lastTriggerTime >= 1 then
+		local timerPhto = data.timer
+		data.lastTriggerTime = timerPhto
+
+		local goalPos = data.TargetController:GetGoal()
+		if goalPos then
+			data.TargetController:CalculatePath(goalPos):Then(function(path: Path): ...any
+				data.MovementController:ForgotPath()
+				data.MovementController:MoveTo(path)
+			end)
+		end
+	end
+end
+
+return Following
+```
+Once it reachs its goal start idle (the transtion is the position reached to the current goal) and idle transition uses a timer of 20 seconds to return to Patrol. All states variables may be resumed if there are interrumpted, how they are interrumpted? There's the transition to attacking, We should use a controller to find a target to shoot, it uses src/myNeverMoreS/abilities/src/Shared/utils/findAimAssistTarget.luau to find a target, once it finds it we tansition to attacking state should have another controller that simulates a camera to shoot the player, we may need to change rangeAttackClient maybe, because they read workspace.CurrentCamera but there should a field for custom camera or something, once you finnish the controller that simulates the armed in the client, the attacking state calls it, there's delay between Weapon:Execute(m1) so call controller shoot between intervals
+
+### HacerBots 2
+The lobby will sent an image to this game version when it start, it creates a number of bots in random goal workspace.goal_*, init them from the server, uses ServerStorage.NPC_models pick a random one and added, position and adding the needed tags. Create a test version that initialize them with 4 npcs to see if it works
 ## Once in lobby
+
+#### Loby version
+We are using a quest handler version like the one from the shooter place. The deal is that shooter and lobby will syncronize through using the same datastore, but only the lobby will accept quests. It uses a pool of quests, they should be sorted by weekly and daily, we can store the last connection of the player and check if a day have passed to aceppt the 3 new random quest from the pool, the same for weekly and we can accept them. Follow the same quest pattern to align to the new quests shape and create new ones for daily and weekly by adding more quests to src/shared/Quests/QuestsData.luau.allQuests
+
+#### Lobby, arrange with bots after time out
+We are using a queu, if it doesn't find any player fills the missing players with bots, we need to sent an image to the gameServer to create a quantity of bots.
 
 ### distintos modos
 - Deadmatch por equipos

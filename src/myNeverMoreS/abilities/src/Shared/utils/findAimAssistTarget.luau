@@ -62,7 +62,13 @@ local function hasLineOfSight(player: Player, origin: Vector3, target: Model, ro
 	return false
 end
 
-local function findAimAssistTarget(player: Player, camera: Camera, range: number, fovDeg: number): BasePart?
+local function findAimAssistTarget(
+	player: Player,
+	camera: Camera,
+	range: number,
+	fovDeg: number,
+	filter: ((character: Model) -> boolean)?
+): BasePart?
 	local cameraCFrame = camera.CFrame
 	local cameraPosition = cameraCFrame.Position
 	local lookDirection = cameraCFrame.LookVector
@@ -85,6 +91,12 @@ local function findAimAssistTarget(player: Player, camera: Camera, range: number
 		-- Never target ourselves (the testing source GetTagged("Armed") includes
 		-- the local character).
 		if character == player.Character then
+			continue
+		end
+
+		-- Optional caller gate (e.g. NPC vision only hunts real players, never
+		-- the other "Armed"-tagged NPCs in the candidate pool).
+		if filter and not filter(character) then
 			continue
 		end
 

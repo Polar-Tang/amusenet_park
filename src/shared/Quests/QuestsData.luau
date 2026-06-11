@@ -3,6 +3,9 @@
 	Registry of every quest table under `Quests/`, keyed by `questId`.
 	Use `GetQuest` for lookups that must succeed (throws on typos) and
 	`FindQuest` when a stale save may reference a removed quest.
+
+	Shared so both PlayerQuests (server) and the QuestsList UI (client)
+	read the same pool.
 ]=]
 
 local questTypes = require(script.Parent.questTypes)

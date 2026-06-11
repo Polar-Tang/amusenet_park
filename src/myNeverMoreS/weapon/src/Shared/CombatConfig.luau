@@ -1,8 +1,6 @@
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local MovementAbility = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Abilities.MovementAbility)
-local RangeAttack = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Abilities.RangeAttack)
 local EffectService = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.EffectService)
 local EffectTypes = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.EffectTypes)
 local roll_vfx = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.roll_vfx)
@@ -343,7 +341,6 @@ local function create_m1_hitboxes(configData: weaponTypes.HixboxDataConfig)
 		local hit_effect = {
 			damage = 10,
 			attacker = ctx.character,
-			stun_time = ctx.stun_time,
 			attackId = ctx.attackId,
 		}
 		if current_combo == max_combo then

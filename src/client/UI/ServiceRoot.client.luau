@@ -32,10 +32,12 @@ local CameraMediator = require(script.Parent.cameraHandlers.camerasStates.Camera
 local Binder = Nevermore("Binder")
 local WeaponClient = Nevermore("WeaponClient") -- THIS IS NEW
 local AnimationHandler = Nevermore("AnimationHandler")
+local NPCClient = Nevermore("NPCClient")
 
 local Binders = {
 	["AnimationHandler"] = AnimationHandler,
 	["Armed"] = WeaponClient,
+	["NPC"] = NPCClient,
 }
 
 ---------- USE BINDER PORVIDER ----------
@@ -85,8 +87,11 @@ local AnimBinder = BinderProviderInitialized:Get("AnimationHandler")
 AnimBinder:GetClassAddedSignal():Connect(function(binder)
 	local character: Model = binder.Char
 	character:SetAttribute("binder-AnimationHandler-charged", true)
-	binder:Init(character:WaitForChild("Humanoid"))
 	mountShit:markObserver("AnimationHandler", true)
+	if not binder:IsInitialized() then 
+		binder:Init(character:WaitForChild("Humanoid"))
+		
+	end
 
 	-- Drive the default character animations through this handler, but only for
 	-- the local player's character (the binder also binds remote characters,
@@ -94,6 +99,17 @@ AnimBinder:GetClassAddedSignal():Connect(function(binder)
 	if Players:GetPlayerFromCharacter(character) == Players.LocalPlayer then
 		task.spawn(Animate, binder, character)
 	end
+end)
+
+-- NPC brains: equip the rig's tool client-side and watch the brain-owner
+-- attribute (only the elected client runs the state machine). Registered
+-- BEFORE serviceBag:Start so pre-placed NPCs binding during Start are caught.
+local NPCBinder = BinderProviderInitialized:Get("NPC")
+NPCBinder:GetClassAddedSignal():Connect(function(npcBinder)
+	task.spawn(function()
+		npcBinder:Init()
+		npcBinder:Start()
+	end)
 end)
 
 -------------------------START SERVICEBAG -----------------------------

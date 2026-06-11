@@ -25,10 +25,12 @@ serviceBag:GetService(Nevermore("RagdollService"))
 local Binder = Nevermore("Binder")
 local WeaponBinder = Nevermore("Weapon")
 local AnimationHandler = Nevermore("AnimationHandler")
+local NPCServer = Nevermore("NPCServer")
 
 local Binders = {
 	["AnimationHandler"] = AnimationHandler,
 	["Armed"] = WeaponBinder,
+	["NPC"] = NPCServer,
 }
 ---------- USE BINDER PORVIDER ----------
 local BinderProvider = Nevermore("BinderProvider")
@@ -69,8 +71,24 @@ end)
 local AnimBinder = BinderProviderStarted:Get("AnimationHandler")
 AnimBinder:GetClassAddedSignal():Connect(function(binder)
 	local character: Model = binder.Char
-	binder:Init(character:WaitForChild("Humanoid"))
+	if not binder:IsInitialized() then 
+		binder:Init(character:WaitForChild("Humanoid"))
+	end
 end)
+
+local NPCBinderServer = BinderProviderStarted:Get("NPC")
+local function setupNpc(npcBinder)
+	task.spawn(function()
+		npcBinder:Init()
+		npcBinder:Start()
+	end)
+end
+NPCBinderServer:GetClassAddedSignal():Connect(setupNpc)
+-- Pre-placed NPCs bound during serviceBag:Start(), before the connection
+-- above existed — sweep them (Init/Start self-guard against double calls).
+for _, npcBinder in NPCBinderServer:GetAll() do
+	setupNpc(npcBinder)
+end
 
 ------------------Do binder stuff-------------------------------
 --||PlayerAdded||--
@@ -80,8 +98,17 @@ local CollectionService = game:GetService("CollectionService")
 
 ------------------ Quests (live per-player state, saved on leave) ------------------
 local DataStoreService = game:GetService("DataStoreService")
-local QuestsData = require(SSS.Server.Quests.QuestsData)
+local QuestsData = require(RS.Shared.Quests.QuestsData)
 local QuestService = serviceBag:GetService(QuestHandler)
+
+-- Client (QuestsList UI) asks for a resync on mount; the join-time
+-- FireClient burst can land before the UI has connected OnClientEvent.
+RS.Shared.RemoteEvents.QuestProgress.OnServerEvent:Connect(function(player)
+	local playerQuests = QuestService:GetHandler(player)
+	if playerQuests then
+		playerQuests:Resync()
+	end
+end)
 
 -- GetDataStore throws in Studio when API access is disabled; quests still run, they just don't persist
 local questsStoreOk, questsStore = pcall(DataStoreService.GetDataStore, DataStoreService, "PlayerQuests_v1")

@@ -5,6 +5,11 @@
 	lifecycle callbacks, mirroring how CombatConfig drives the ability classes.
 	Anything unique to one quest (rewards, custom notifications) belongs in its
 	table, never in the handler.
+
+	This module lives in ReplicatedStorage so the client UI can read quest
+	titles/descriptions. The lifecycle callbacks are only ever invoked by the
+	server (PlayerQuests) — keep anything secret out of them, the source
+	replicates to clients.
 ]=]
 
 export type QuestKind = "kill" | "damage" | "catch"

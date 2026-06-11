@@ -11,8 +11,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local QuestsData = require(script.Parent.QuestsData)
-local questTypes = require(script.Parent.questTypes)
+local QuestsData = require(ReplicatedStorage.Shared.Quests.QuestsData)
+local questTypes = require(ReplicatedStorage.Shared.Quests.questTypes)
 
 local QuestProgressRemote: RemoteEvent = ReplicatedStorage.Shared.RemoteEvents.QuestProgress
 
@@ -97,6 +97,18 @@ function PlayerQuests.IncreaseProgress(self: PlayerQuests, kind: questTypes.Ques
 			quest.onProgress(self._player, progress)
 		end
 
+		QuestProgressRemote:FireClient(self._player, progress)
+	end
+end
+
+--[=[
+	Replays every progress entry to the client. The join-time AcceptQuest
+	burst can fire before the client UI has connected OnClientEvent (those
+	events are lost), so QuestsList fires the remote back once on mount and
+	the server answers with this.
+]=]
+function PlayerQuests.Resync(self: PlayerQuests)
+	for _, progress in pairs(self.questsList) do
 		QuestProgressRemote:FireClient(self._player, progress)
 	end
 end

@@ -13,6 +13,8 @@ local drawRayResults = require(ReplicatedStorage.Nevermore.Custom.abilities.src.
 local getRayDirections = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getRayDirections)
 local weaponTypes = require(ReplicatedStorage.Nevermore.Custom.weapon.src.Server.types.weaponTypes)
 
+local getCharacterActor = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getCharacterActor)
+
 local CombatConfig = require(ReplicatedStorage.Nevermore.Custom.weapon.src.Shared.CombatConfig)
 local CameraUtils = require(ReplicatedStorage.Shared.utils.CameraUtils)
 
@@ -78,6 +80,16 @@ function AttackDistanceAbility.new(config: construnctor)
 	self.attackType = config.attackType
 	self.player = Players:GetPlayerFromCharacter(self.character)
 
+	-- NPC support. NPCs equip through the same client Armed context (their
+	-- brain runs on this client, see NPCClient), so this ability is also
+	-- instanced for characters the local player does NOT control. Everything
+	-- that reads input devices or drives the camera stack must stay
+	-- local-owner-only; the NPC instead aims through `customCamera`, a
+	-- Camera-shaped CFrame holder its AttackController points at the target
+	-- before each Execute (see SetCustomCamera).
+	self._isLocalOwner = self.player == Players.LocalPlayer
+	self.customCamera = config.customCamera
+
 	self._lastShotTimestamp = 0
 	self._recoilRestoreCFrame = nil
 	self._recoilTimeoutThreshold = 0.01
@@ -106,6 +118,13 @@ function AttackDistanceAbility.new(config: construnctor)
 	-- InputObject so a second thumb on the fire button — which arrives as a
 	-- SEPARATE, gameProcessed touch — never clears a real world-drag.
 	self._dragTouches = {}
+
+	-- Everything below is local-player-only runtime: UserInputService
+	-- listeners, the m1Hold mirror and the camera-lerp mutex have no meaning
+	-- for an NPC-owned instance (its fire trigger is the Attacking state).
+	if not self._isLocalOwner then
+		return self :: AttackDistanceAbilityType
+	end
 
 	-- iF PLAYER MOVES THE MOUSE(SO CAMERA) COMPLETLY STOPS THE LERPING
 	self._inputConnection = UserInputService.InputChanged:Connect(function(input)
@@ -211,7 +230,10 @@ end
 -- Throttled to AIM_ASSIST_SCAN_INTERVAL because the line-of-sight raycasts are
 -- expensive; the LerpCamera lock still smooths every render frame in between.
 function AttackDistanceAbility.Start(self: AttackDistanceAbilityType)
-	if not RunService:IsClient() then
+	-- NPC-owned instances skip the scan: target acquisition is the NPC
+	-- TargetController's job, and the camera lock would fight the player's
+	-- own camera stack.
+	if not RunService:IsClient() or not self._isLocalOwner then
 		return
 	end
 
@@ -240,6 +262,14 @@ function AttackDistanceAbility.Start(self: AttackDistanceAbilityType)
 	end
 	debug.profileend()
 
+end
+
+-- NPC aim hook: the simulated camera `_shot` fires from instead of
+-- workspace.CurrentCamera. Any object with a world-space `.CFrame` works (the
+-- NPC AttackController hands over an unparented Camera instance it re-aims at
+-- the target before every Execute).
+function AttackDistanceAbility.SetCustomCamera(self: AttackDistanceAbilityType, camera: Camera?)
+	self.customCamera = camera
 end
 
 -- True while the player is manually panning the camera with a world touch.
@@ -400,13 +430,16 @@ function AttackDistanceAbility._shot(self: AttackDistanceAbilityType)
 	local now = Workspace:GetServerTimeNow()
 
 	-- Any attempt to compute the camera cframe via camera handler will be different of the actual camera cframe write because camera effects use dt based in os.clock() and they will be computed at differents times of the frame causing cframe mismathing
-	local origin = workspace.CurrentCamera.CFrame
+	-- NPCs fire from their simulated camera (SetCustomCamera) instead.
+	local camera = self.customCamera or workspace.CurrentCamera
+	local origin = camera.CFrame
 
 	-- While the continuous auto-aim lock owns the camera (mobile/gamepad firing),
 	-- the recoil kick + restore-lerp mutex is skipped entirely: the Heartbeat
 	-- track is what aims the camera, and recoil is intentionally hidden (the
 	-- chosen "hard lock"). The shot still fires from `origin` below.
-	if not self._aimAssistActive then
+	-- NPC-owned instances skip it too: there is no real camera to kick.
+	if self._isLocalOwner and not self._aimAssistActive then
 		-- mutex: a fired shot ends any in-flight lerp before kicking recoil
 		if _G.CurrentCameraHandler then
 			_G.CurrentCameraHandler:StopLerpCamera()
@@ -444,7 +477,9 @@ function AttackDistanceAbility._shot(self: AttackDistanceAbilityType)
 		rayDirections[index] = direction * range
 	end
 
-	local rayResults = castRays(self.player, origin.Position, rayDirections, rayRadius)
+	-- getCharacterActor returns the real Player when there is one; for NPCs it
+	-- is the Player-shaped stand-in castRays/canPlayerDamageHumanoid accept.
+	local rayResults = castRays(getCharacterActor(self.character), origin.Position, rayDirections, rayRadius)
 
 	-- Rather than passing the entire table of rayResults to the server, we'll pass the shot origin and a list of tagged humanoids.
 	-- The server will then recalculate the ray directions from the origin and validate the tagged humanoids.
@@ -459,9 +494,12 @@ function AttackDistanceAbility._shot(self: AttackDistanceAbilityType)
 			}
 		end
 	end
+	-- `npcChar` tells AttckInvoker to execute on the NPC's server Weapon
+	-- context instead of the firing player's (only honored for NPC-tagged
+	-- models). Nil for player-owned instances, keeping the payload unchanged.
 	ReplicatedStorage.Shared.RemoteEvents.Swing:FireServer(
 		Enum.UserInputType.MouseButton1,
-		{ timestamp = now, tagged = tagged, origin = origin }
+		{ timestamp = now, tagged = tagged, origin = origin, npcChar = if self.player then nil else self.character }
 	)
 
 	drawRayResults(origin.Position, rayResults)

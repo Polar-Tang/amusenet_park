@@ -76,6 +76,49 @@ Trigger: a `Tool` becomes a child of `player.Character`.
 - **Constructor must not yield**: yielding constructors race the tag-removed signal and trigger `[Binder._add] - Failed to load instance, removed while loading!` warnings (Binder.lua:691).
 - **Destroy is automatic on untag**: if your bound class has `:Destroy()`, it will be called by `MaidTaskUtils.doTask` when the tag is removed. You don't need a `ClassRemovingSignal` listener for cleanup — just implement `Destroy` correctly.
 
+## NPC binder (tag "NPC")
+
+NPCs are rigs tagged `Constants.NPC_TAG` ("NPC") in Studio, with a `Tool` child naming their weapon. The package is `src/myNeverMoreS/npc/`, registered as `["NPC"]` in both ServiceRoots. The split is deliberate:
+
+- **`Server/Binder/NPCServer.luau`** makes the rig a *valid combatant*: in `new()` it tags `AnimationHandler`/`CD`/`Armed` (the same set players get in ServiceRoot's PlayerAdded) and mirrors `CombatMediator.PlayerAdded`'s combat attributes (`Combo`, `Stunned`, `Iframes`, …) so the server hit pipeline treats it exactly like a player character. `Init()` equips the first Tool child through `characterCtxUtils` so the server Weapon strategy exists. `Start()` runs **brain-owner election**.
+- **`Client/Binder/NPCClient.luau`** is the *brain*: a RobloxStateMachine (`src/shared/StateMachine`, → `ReplicatedStorage.Shared.StateMachine`) with states Patrol/Idle/Attacking under `Client/States`, transitions under `Client/Transitions`, driven by four controllers built in `Client/Binder/helpers/setCtx.luau`. The machine runs on the client for performance.
+
+### Brain ownership: exactly one client per NPC
+
+Every client binds every NPC (tags replicate), so without election every connected client would run the machine and fire the weapon — the server would apply duplicated damage. `NPCServer` elects one client by writing its UserId to the `NpcConstants.BRAIN_OWNER_ATTRIBUTE` attribute (random pick, spreading many NPCs across clients) and re-elects on PlayerAdded/PlayerRemoving. `NPCClient:Start()` watches that attribute and boots/tears down the machine in a **brain-scoped maid** (`self._maid._brain`) holding the controllers and the machine, so a handoff cleans everything without touching the equip/watch connections. Trust level is the same as the rest of combat: the owning client is authoritative over the NPC's shots (see `npcChar` routing below).
+
+### How the NPC reuses the player combat pipeline
+
+- **`getCharacterActor` (abilities/src/Shared/utils)**: the whole hit pipeline (`castRays`, `canPlayerDamageHumanoid`, `validateTag`, `findAimAssistTarget`) only reads `.Character`, `.Team`, `.Neutral` (+ `.UserId` for attack IDs) off a Player. This util returns the real Player for player characters, else a cached fake-player table `{ Character = char, Neutral = true, UserId = char.Name }`. Server `RangeAttack` uses it instead of `GetPlayerFromCharacter`.
+- **`RangeAttackClient`** gained `self._isLocalOwner` (`self.player == Players.LocalPlayer`): when false, every input/recoil/camera-handler/continuous-fire wire-up is skipped — the ability is execute-only. `SetCustomCamera(camera)` lets `_shot` read aim from a supplied Camera instead of `workspace.CurrentCamera`.
+- **Unparented `Instance.new("Camera")` as CFrame holder**: both `TargetController` (vision eye for `findAimAssistTarget`, which takes a Camera) and `AttackController` (shooting eye for `SetCustomCamera`) use one. It's just a world-space CFrame container; never parented.
+- **`AttckInvoker` `npcChar` routing**: the brain-owner client's Swing payload carries `npcChar = self.character` when there is no real player. The server only honors it if `CollectionService:HasTag(npcChar, Constants.NPC_TAG)` — otherwise a client could execute arbitrary characters' weapons.
+- **`findAimAssistTarget`** gained an optional `filter(character) -> boolean` 5th param; `TargetController` passes "is a real player character" so NPCs never hunt each other (the candidate pool is everything tagged Armed, which now includes NPCs).
+
+### State machine specifics (src/shared/StateMachine)
+
+- `StateMachine.new(initial, StateMachine:LoadDirectory(folder), ctx)` **deep-copies the states, NOT the data table** — `self.Data = initialData` is by reference, so live controller instances in the ctx are safe.
+- Transitions' `OnDataChanged(data)` runs **every Heartbeat** for the current state. Anything expensive a transition polls (the vision scan) must throttle *inside the controller* (`TargetController.Scan` gates on `VISION_SCAN_INTERVAL`), not in the transition.
+- Only the **current** state's `OnHeartbeat` runs, so the shared clock is `data.timer += deltaTime` in *every* state's heartbeat.
+- **Resumability lives in controllers, not states**: states are stateless dispatchers. The patrol goal survives an Attacking detour because `GoalController:EnsureGoal()` keeps a non-reached goal; only a reached/removed goal is re-rolled. Same idea as the Armed context/strategy split — long-lived domain objects, thin behavior on top.
+
+### Lessons learned building this (general, will bite again)
+
+- **ServiceRoot connection ordering differs per side**: the client registers `GetClassAddedSignal` connections **before** `serviceBag:Start()` (catches everything), the server registers them **after** — so classes bound *during* Start (pre-placed tagged rigs) never fire the server connections. Fix: a `binder:GetAll()` sweep after connecting, and make the methods the sweep calls **re-entry-guarded** (set the `_initialized`/`_started` flag at the top, since the signal and the sweep can overlap).
+- **`_G.ServiceBag` is nil during server `serviceBag:Start()`** (set only after Start returns). Anything that runs during binding — like NPCServer's equip — must receive binders/services explicitly (the `characterCtxUtils:InitChar*(…, binder)` third param exists for this) instead of relying on the `_G` fallback.
+- **Binder ctor signatures differ per side** (an accident of how each ServiceRoot wires `Binder.new`): server classes get `(inst, serviceBag, binderProvider)`, client classes get `(inst, serviceBag)`. Check the ServiceRoot before assuming.
+- **Server AnimationHandler auto-`Init` also misses Start-time binds** (same ordering gap), so a consumer can't assume `animHandler._initialized` — check it and call `animHandler:Init(humanoid)` yourself.
+- **Guns work without an AnimationHandler; melee doesn't.** Server `Weapon.new`'s anim lookup and `BaseAbility.new`'s anim binder access are nil-safe, and the gun m1 ships `animNames = {}`. Fist (melee) animations are required.
+- **Don't `setmetatable(self, nil)` in `Destroy` when async callbacks can still land**: `MovementController:Destroy` rejects the in-flight move promise, whose `:Catch` calls `self:Stop()` possibly a tick later — stripping the metatable turns that into a method-not-found error.
+- **Maid layering**: binder maid owns controllers; a controller that runs multi-frame work (MovementController) needs its *own* private maids (move scratch + per-waypoint race) cleaned per-operation. Never clean a binder-level maid from inside an operation — it tears down sibling controllers mid-move.
+- **`Humanoid:MoveTo` has an 8s built-in timeout** — far too slow to notice a stuck combat NPC. Race `MoveToFinished` against your own `task.delay` (1s here) and recover (ballistic jump to the waypoint with `v0 = (p1 - p0 - 0.5*g*T²)/T`).
+
+### Key files
+
+- `src/myNeverMoreS/npc/src/Shared/NpcConstants.luau`: all tuning (goal-reached distance, idle dwell, vision range/FOV/scan interval, loss grace, `BRAIN_OWNER_ATTRIBUTE`). Goal parts are tagged `Constants.NPC_GOALS_TAG` ("NPC_goals").
+- `src/myNeverMoreS/npc/src/Client/Controllers/`: `GoalController` (goal pick + Promise-wrapped `ComputeAsync`), `MovementController` (waypoint chain, stuck recovery, `LookTo` tween), `TargetController` (vision), `AttackController` (simulated camera + `Weapon:Execute(m1)`; the ability cooldown stays the real fire-rate gate — `GetShootInterval` only keeps Attacking from hammering Execute).
+- `src/myNeverMoreS/npc/src/Client/States/` + `Transitions/`: thin; behavior changes belong in controllers or NpcConstants.
+
 ## Animation
 ### Module + stub split
 - `src/client/UI/Animate.luau` — the **real logic**, a ModuleScript that returns `function(animationHandler, character)`. It wraps all the original Animate state (pose machine, connections, the `wait(0.1)` move loop) in one per-character closure. ServiceRoot requires it once and `task.spawn`s it per character.

@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Crosshair = require(script.Parent.components.Crosshair)
 local MobileButtons = require(script.Parent.components.MobileButtons)
 local SpinRoulette = require(script.Parent.components.SpinRoulette)
+local QuestsList = require(script.Parent.components.QuestsList)
 local Roact = require(ReplicatedStorage.Shared.Roact)
 
 local CrosshairProvider = require(script.Parent.Context.CrosshairContext.CrosshairProvider)
@@ -23,6 +24,7 @@ function App:render()
 		MobileButtons = Roact.createElement(MobileButtons, {
 				weaponClient = self.props.weaponClient,
 			}),
+		QuestsList = Roact.createElement(QuestsList),
 		-- SpinRoulette = Roact.createElement(SpinRoulette),
 	})
 end

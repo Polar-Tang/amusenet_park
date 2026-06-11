@@ -100,4 +100,12 @@ module.recoil_offset = Vector3.new(0, 1.25, 0)
 module.dashTime = 3
 module.dashDistance = 20
 module.slideInitialSpeed = 55
+
+-- NPC
+-- Tag carried by every NPC character model; binds the NPC binders (client
+-- brain / server Armed mirroring) and marks the model as a valid client-driven
+-- shooter for AttckInvoker's npcChar routing.
+module.NPC_TAG = "NPC"
+-- Tag carried by the workspace.goal_* parts NPCs patrol between.
+module.NPC_GOALS_TAG = "NPC_goals"
 return module

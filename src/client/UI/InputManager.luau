@@ -64,7 +64,7 @@ local function ensureWeapon()
 		weapon = WeaponBinderStarted:Get(plr.Character)
 		_G.PlayerWeaponBinder = weapon
 	end
-	if not weapon:GetStrategy() then
+	if weapon and not weapon:GetStrategy() then
 		return false
 	end
 	return true

@@ -1,4 +1,3 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -9,6 +8,7 @@ local validateTag = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Ser
 local BaseAbility = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Abilities.BaseAbility)
 local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
 local castRays = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.castRays)
+local getCharacterActor = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getCharacterActor)
 local getRayDirections = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getRayDirections)
 local weaponTypes = require(ReplicatedStorage.Nevermore.Custom.weapon.src.Server.types.weaponTypes)
 
@@ -19,7 +19,10 @@ function AttackDistanceAbility.new(config)
 	local self = setmetatable(BaseAbility.new(config), AttackDistanceAbility)
 
 	self._lastAttackID = 0
-	self.player = Players:GetPlayerFromCharacter(self.character)
+	-- Real Player when one owns the character; the Player-shaped stand-in for
+	-- NPC weapons, so castRays/validateTag/_GenerateAttackID below keep working
+	-- when AttckInvoker routes a client-driven NPC shot here.
+	self.player = getCharacterActor(self.character)
 
 	return self
 end
