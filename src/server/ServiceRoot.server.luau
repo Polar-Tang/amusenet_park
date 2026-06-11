@@ -39,8 +39,12 @@ AttacksBinders = BinderProvider.new("Binders", function(self, serviceBag)
 	end
 end)
 
+---------- QUESTS ----------
+local QuestHandler = require(SSS.Server.Quests.QuestHandler)
+
 ----- ------------------------ START SERVICEBAG -----------------------------
 serviceBag:GetService(AttacksBinders)
+serviceBag:GetService(QuestHandler)
 serviceBag:Init()
 
 serviceBag:Start()
@@ -73,6 +77,18 @@ end)
 local Ragdoll = Nevermore("Ragdoll")
 local CombatMediator = require(SSS.Server.Combat.CombatMediator)
 local CollectionService = game:GetService("CollectionService")
+
+------------------ Quests (live per-player state, saved on leave) ------------------
+local DataStoreService = game:GetService("DataStoreService")
+local QuestsData = require(SSS.Server.Quests.QuestsData)
+local QuestService = serviceBag:GetService(QuestHandler)
+
+-- GetDataStore throws in Studio when API access is disabled; quests still run, they just don't persist
+local questsStoreOk, questsStore = pcall(DataStoreService.GetDataStore, DataStoreService, "PlayerQuests_v1")
+if not questsStoreOk then
+	warn("[ServiceRoot] - DataStore unavailable, quests will not persist: ", questsStore)
+	questsStore = nil
+end
 Players.PlayerAdded:Connect(function(player)
 	local char = player.Character or player.CharacterAdded:Wait()
 	-- Set collision groups for all descendants
@@ -92,6 +108,24 @@ Players.PlayerAdded:Connect(function(player)
 	------------------ TEST ------------------
 	CombatMediator.PlayerAdded(player)
 
+	------------------ QUESTS ------------------
+	local savedQuests = nil
+	if questsStore then
+		local loadOk, loadResult = pcall(questsStore.GetAsync, questsStore, tostring(player.UserId))
+		if loadOk then
+			savedQuests = loadResult
+		else
+			warn("[ServiceRoot] - Failed to load quests for player ", player.UserId, loadResult)
+		end
+	end
+
+	QuestService:InitPlayer(player, player, savedQuests)
+	local playerQuests = QuestService:GetHandler(player)
+	-- Pool the quests: hand every registered quest to the player (no-op resync when it came from the save)
+	for questId in pairs(QuestsData.allQuests) do
+		playerQuests:AcceptQuest(questId)
+	end
+
 	-- TODO: NEED TO USE PLAYERbrio
 	local hum: Humanoid = char:WaitForChild("Humanoid")
 
@@ -102,6 +136,19 @@ end)
 --||PlayerRemoving||--
 Players.PlayerRemoving:Connect(function(player)
 	-- PlayerAnimationHandler:RemovePlayer({ player = player })
+	local playerQuests = QuestService:GetHandler(player)
+	if not playerQuests then
+		return
+	end
+
+	if questsStore then
+		local saveOk, saveErr = pcall(questsStore.SetAsync, questsStore, tostring(player.UserId), playerQuests:GetSaveData())
+		if not saveOk then
+			warn("[ServiceRoot] - Failed to save quests for player ", player.UserId, saveErr)
+		end
+	end
+
+	QuestService:RemovePlayer(player)
 end)
 
 ------------------ Roulette ------------------

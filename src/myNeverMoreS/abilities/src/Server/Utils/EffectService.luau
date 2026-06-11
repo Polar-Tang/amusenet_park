@@ -8,6 +8,8 @@ local roll_vfx = require(script.Parent.roll_vfx)
 local remotes = RS.Shared.RemoteEvents
 local VFX_Event: RemoteEvent = remotes.VFX
 -- CUstom helpers/services
+local ServerScriptService = game:GetService("ServerScriptService")
+local QuestHandler = require(ServerScriptService.Server.Quests.QuestHandler)
 local EffectTypes = require(script.Parent.EffectTypes)
 
 export type effectHitCtx = EffectTypes.effectHitCtx
@@ -418,6 +420,7 @@ function EffectService:Apply(context: effectHitCtx)
 	end
 
 	if context.damage then
+		local wasAlive = defender_humanoid.Health > 0
 		defender_humanoid:TakeDamage(context.damage)
 
 		local BinderProvider = context.serviceBag:GetService(_G.BinderProvider)
@@ -430,6 +433,19 @@ function EffectService:Apply(context: effectHitCtx)
 			src = defender_hrp,
 		})
 		weaponEnemy:RegisterAttackEffect(context.attackId, context)
+
+		-- Quest progress by kind: every active quest of the kind advances on the same event
+		local attackerPlayer = Players:GetPlayerFromCharacter(attacker_char)
+		if attackerPlayer then
+			local questHandler = context.serviceBag:GetService(QuestHandler)
+			local attackerQuests = questHandler:GetHandler(attackerPlayer)
+			if attackerQuests then
+				attackerQuests:IncreaseProgress("damage", context.damage)
+				if wasAlive and defender_humanoid.Health <= 0 then
+					attackerQuests:IncreaseProgress("kill", 1)
+				end
+			end
+		end
 	end
 
 	if context.stunt_time then

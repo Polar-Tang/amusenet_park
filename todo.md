@@ -76,11 +76,24 @@ where the camera offset is derived from workspace.CurrentCamera's rotation (rota
 
 # Arlong Park
 (lógica específica del juego)
+
+## gameplaymap
+### adding mmo
+Range attack client has an ammo but it does not much, use an ammo in combatConfig weapon (fist hasn't an ammo) discount in server, i don't rembember if it's an attribute but if it's you can directly render it in the client. If ammo in backend is cero do early return, 
+recharges de weapon is a brand new ability of the weapon and it's keycode is r, it sets an atribute like swing that doesn't allow _shot to execute, and unset it after a harcoded value (we will change that in the future)
+
 ### Quests
 - tres quests te garantiza subir 1 y medio
 - cada kill te da una experience, si es doble kill, triple kill es más
 [] pool the quests, hay una tabla con tittle, description and cb la cb puede usar distintas apis para checkear el su progreso
 - quest diarias (cada 24 horas) y quests semanales (should make it long live in per server and store them in DS)
+- Adding new quest to test, also create a component in src/client/UI/RoactUI that connects to QuestProgressRemote and share the quests list and update with its progession
+
+### HACER BOTS
+NPCs que tienen un patrol y utilizan la misma api que aim asistant para saber a que player disparar, los bots tienen un binder en el client que simula llamar shot desde una camara donde el raycast da perfecto al player aunque en realidad no muevan la camara
+
+## Once in lobby
+
 ### distintos modos
 - Deadmatch por equipos
 - EL último en pie gana
@@ -93,9 +106,7 @@ where the camera offset is derived from workspace.CurrentCamera's rotation (rota
 ### Kill cam
 - cambia la camara del player a quien lo asesino
 - se muestra un cartelito 
-- el cartelito es personalizable con las skins 
-### HACER BOTS
-NPCs que tienen un patrol y utilizan la misma api que aim asistant para saber a que player disparar, los bots tienen un binder en el client que simula llamar shot desde una camara donde el raycast da perfecto al player aunque en realidad no muevan la camara
+- el cartelito es personalizable con las skins
 ### FULL GAME UI
 estilizado como wonkeland
 [] Slots para las skins como 10 
@@ -154,7 +165,8 @@ skins de kill card
   folder in each of them, the problem is that now every file path needs to be
   updated. Please update all the requires
 
-### Create a spin roulette
+### Create a spin roulette 
+
 1. Create the template
 Given a spin roulete, create a Roact component  image label which's a square but the image is the spin roulete wheel. The other component is a button its activated callback function you send a remote event for creating an angle for this wheel. 
 2. Create items and a remote event
@@ -170,3 +182,10 @@ local rarety = WeightedRandom.Pick({
 })
 3. Rotate the image
 Given the second law of newton, calculate the angular force needed to do full rotations and desacelarates the wheel until reach the angle told by the server
+
+### Using treasures 
+We need to create chest that can be detected by a radar. First create a binder (see claude.md there should be a section for binder) this binder lives in shared folder. The tag used is at src/myNeverMoreS/abilities/src/Shared/Constanst.luau. It does create a proximity prompt parented to the object (instance of the tag).
+The proximity prompt fires a remote event the server event create two weapons and uses
+
+Now check if we are already using promptShown connection of a proximity promt, because we need to detect if the parent of proximity prompt has this tag, then you need to render a radar component.
+Radar component is a png of a slice of a circle, but you need to calculate the its angle between the camera and the chest position so the slice point the camera rotation needed to reach the chest
