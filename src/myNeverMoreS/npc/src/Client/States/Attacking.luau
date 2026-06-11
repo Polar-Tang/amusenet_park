@@ -40,8 +40,10 @@ function Attacking:OnHeartbeat(data, deltaTime: number)
 
 	-- Face at hrp height so the rig yaws without pitching; the simulated
 	-- camera inside AttackController handles the actual vertical aim.
-	data.MovementController:LookTo(Vector3.new(target.Position.X, data.hrp.Position.Y, target.Position.Z))
-	data.AttackController:Shoot(target.Position)
+	if data.TargetController:isCloserEnough() then
+		data.MovementController:LookTo(Vector3.new(target.Position.X, data.hrp.Position.Y, target.Position.Z))
+		data.AttackController:Shoot(target.Position)
+	end
 end
 
 return Attacking

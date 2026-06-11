@@ -42,6 +42,7 @@ export type NPCClient = typeof(setmetatable(
 		_serviceBag: any,
 		_maid: any,
 		_initialized: boolean,
+		_isDead: boolean,
 	},
 	NPCClient
 ))
@@ -54,6 +55,7 @@ function NPCClient.new(char: Model, serviceBag: any): NPCClient
 	self._serviceBag = serviceBag
 	self._maid = Maid.new()
 	self._initialized = false
+	self._isDead = false
 
 	-- Armed context for this rig. The server tags too (for the server Weapon);
 	-- AddTag is idempotent so double-tagging is harmless.
@@ -88,7 +90,12 @@ function NPCClient.Init(self: NPCClient)
 	self._maid:GivePromise(animBinder:Promise(self.char)):Then(function(weaponContext)
 		local animHandler = animBinder and animBinder:Get(self.char)
 		self._animHandler = animHandler
-		animHandler:Init(self.char:WaitForChild("Humanoid"))
+		-- ServiceRoot's AnimationHandler class-added connection may have already
+		-- inited this handler (the runtime tag fires both paths); Init asserts on
+		-- a double call, so check first instead of assuming it's uninitialized.
+		if not animHandler:IsInitialized() then
+			animHandler:Init(self.char:WaitForChild("Humanoid"))
+		end
 		-- NPCs don't run the Animate module (which is what registers the
 		-- OtherAnims defaults for player characters), so register the default
 		-- poses here. Without this, MovementController's LoadAnimation(.., "Walk")
@@ -113,10 +120,34 @@ function NPCClient.Start(self: NPCClient)
 			self:_updateBrainOwnership()
 		end)
 	)
+
+	-- A dead rig should not patrol, attack, or be re-elected into a brain. Tear
+	-- the machine down on death and latch `_isDead` so a later ownership
+	-- re-election can't boot it back up. The Died connection lives on the binder
+	-- maid, so it's cleaned with the rest when the NPC untags.
+	local humanoid = self.char:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		self._maid:GiveTask(humanoid.Died:Connect(function()
+			self:_onDied()
+		end))
+		if humanoid.Health <= 0 then
+			self:_onDied()
+		end
+	end
+
 	self:_updateBrainOwnership()
 end
 
+function NPCClient._onDied(self: NPCClient)
+	self._isDead = true
+	self:_stopMachine()
+end
+
 function NPCClient._updateBrainOwnership(self: NPCClient)
+	if self._isDead then
+		return
+	end
+
 	local owner = self.char:GetAttribute(NpcConstants.BRAIN_OWNER_ATTRIBUTE)
 	local isOwner = owner == Players.LocalPlayer.UserId
 

@@ -12,7 +12,7 @@ local TargetLost = Transition.new("Patrol")
 TargetLost.Name = "TargetLost"
 
 function TargetLost:OnDataChanged(data)
-	return data.TargetController:Scan() == nil
+	return not (data.TargetController:Scan() and data.TargetController:isCloserEnough())
 end
 
 return TargetLost

@@ -195,6 +195,9 @@ function AnimationHandler:_initDescriptior(animaName: string)
 	end
 
 	local animId = self.animations[animaName]
+	if not animId then 
+		return
+	end
 	local descriptor: AnimationDescriptor = {} :: AnimationDescriptor
 	local newAnimation = Instance.new("Animation")
 	newAnimation.AnimationId = animId

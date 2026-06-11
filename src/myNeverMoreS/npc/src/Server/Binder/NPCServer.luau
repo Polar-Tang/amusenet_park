@@ -112,7 +112,12 @@ function NPCServer.Init(self: NPCServer)
 	self._maid:GivePromise(animBinder:Promise(self.char)):Then(function(weaponContext)
 		local animHandler = animBinder and animBinder:Get(self.char)
 		self._animHandler = animHandler
-		animHandler:Init(self.char:WaitForChild("Humanoid"))
+		-- ServiceRoot's AnimationHandler class-added connection may have already
+		-- inited this handler (the runtime tag fires both paths); Init asserts on
+		-- a double call, so check first instead of assuming it's uninitialized.
+		if not animHandler:IsInitialized() then
+			animHandler:Init(self.char:WaitForChild("Humanoid"))
+		end
 		characterCtxUtils:InitCharAnim(self.char, toolName, animHandler)
 		
 		local weaponBinder = self._binderProvider:Get("Armed")
@@ -160,6 +165,7 @@ end
 -- (random spreads the brains of many NPCs across the connected clients).
 function NPCServer._electBrainOwner(self: NPCServer, leaving: Player?)
 	local currentOwner = self.char:GetAttribute(NpcConstants.BRAIN_OWNER_ATTRIBUTE)
+	print("currentOwner ", currentOwner)
 
 	local candidates = {}
 	for _, player in Players:GetPlayers() do

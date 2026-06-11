@@ -505,7 +505,16 @@ return Following
 Once it reachs its goal start idle (the transtion is the position reached to the current goal) and idle transition uses a timer of 20 seconds to return to Patrol. All states variables may be resumed if there are interrumpted, how they are interrumpted? There's the transition to attacking, We should use a controller to find a target to shoot, it uses src/myNeverMoreS/abilities/src/Shared/utils/findAimAssistTarget.luau to find a target, once it finds it we tansition to attacking state should have another controller that simulates a camera to shoot the player, we may need to change rangeAttackClient maybe, because they read workspace.CurrentCamera but there should a field for custom camera or something, once you finnish the controller that simulates the armed in the client, the attacking state calls it, there's delay between Weapon:Execute(m1) so call controller shoot between intervals
 
 ### HacerBots 2
-The lobby will sent an image to this game version when it start, it creates a number of bots in random goal workspace.goal_*, init them from the server, uses ServerStorage.NPC_models pick a random one and added, position and adding the needed tags. Create a test version that initialize them with 4 npcs to see if it works
+The lobby will sent an image to this game version when it start, it creates a number of bots in random goal workspace.goal_*, init them from the server, uses ServerStorage.NPC_models pick a random one and added, position and adding the needed tags. Create a test that initialize them with 4 npcs to see if it works
+
+The server recive a message like 
+MessagingService:PublishAsync(Config.MATCH_FOUND_TOPIC, {
+		matchId = HttpService:GenerateGUID(false),
+		accessCode = accessCode,
+		userIds = userIds,
+		botCount = botCount,
+	})
+  from the lobby place to start the bots, how could we recive that message and fill the place with the needed bots through MessagingService api?
 ## Once in lobby
 
 #### Loby version

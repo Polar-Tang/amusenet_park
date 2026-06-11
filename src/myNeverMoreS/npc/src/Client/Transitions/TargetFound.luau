@@ -10,7 +10,7 @@ local TargetFound = Transition.new("Attacking")
 TargetFound.Name = "TargetFound"
 
 function TargetFound:OnDataChanged(data)
-	return data.TargetController:Scan() ~= nil
+	return data.TargetController:Scan() and data.TargetController:isCloserEnough()
 end
 
 return TargetFound

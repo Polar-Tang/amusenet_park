@@ -98,6 +98,8 @@ local CollectionService = game:GetService("CollectionService")
 
 ------------------ Quests (live per-player state, saved on leave) ------------------
 local DataStoreService = game:GetService("DataStoreService")
+local ServerScriptService = game:GetService("ServerScriptService")
+local NpcSpawner = require(ServerScriptService.Server.NPC.NpcSpawner)
 local QuestsData = require(RS.Shared.Quests.QuestsData)
 local QuestService = serviceBag:GetService(QuestHandler)
 

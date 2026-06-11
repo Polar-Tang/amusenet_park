@@ -194,6 +194,10 @@ ReplicatedStorage.Shared.RemoteEvents.countDamage.OnClientEvent:Connect(function
 	FadeText(data.src, dmg, textColor, UDim2.new(6, 0, 4, 0))
 end)
 
+ReplicatedStorage.Shared.RemoteEvents.clientDebugConsole.OnClientEvent:Connect(function(message: string)
+	print(message)
+end)
+
 -- player_character:GetAttributeChangedSignal("recoil"):Connect(function(recoil: number)
 -- 	print("recoild ", recoil)
 -- 	CameraRecoiler.recoil(recoil)

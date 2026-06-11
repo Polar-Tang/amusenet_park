@@ -104,6 +104,15 @@ function TargetController.GetTarget(self: TargetController): BasePart?
 	return target
 end
 
+
+function TargetController.isCloserEnough(self: TargetController): boolean?
+	if not self._target then 
+		return
+	end
+	local distance = (self._target.Position - self.hrp.Position).Magnitude
+	print("distance ", distance)
+	return  (distance <= 15)
+end
 function TargetController.Destroy(self: TargetController)
 	self._visionCamera:Destroy()
 	self._target = nil

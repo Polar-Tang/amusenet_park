@@ -1,7 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Crosshair = require(script.Parent.components.Crosshair)
 local MobileButtons = require(script.Parent.components.MobileButtons)
-local SpinRoulette = require(script.Parent.components.SpinRoulette)
+-- local SpinRoulette = require(script.Parent.components.SpinRoulette)
 local QuestsList = require(script.Parent.components.QuestsList)
 local Roact = require(ReplicatedStorage.Shared.Roact)
 
