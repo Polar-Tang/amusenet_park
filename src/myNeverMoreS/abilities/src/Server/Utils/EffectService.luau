@@ -11,7 +11,10 @@ if RunService:IsClient() then
 end
 
 local Ragdoll = require(ReplicatedStorage.Nevermore.Quenty.ragdoll.Server.Classes.Ragdoll)
+local Signal = require(ReplicatedStorage.Nevermore.Quenty.signal.Shared.Signal)
 local roll_vfx = require(script.Parent.roll_vfx)
+
+local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
 
 local remotes = RS.Shared.RemoteEvents
 local VFX_Event: RemoteEvent = remotes.VFX
@@ -24,6 +27,12 @@ export type effectHitCtx = EffectTypes.effectHitCtx
 -- local stunHandler = require("StunHandlerV2")
 
 local EffectService = {}
+
+-- Server-side kill feed: fired (attacker_char, defender_char) from the one
+-- authoritative lethal-damage site below — for EVERY victim, NPC rigs
+-- included (the PlayerDied remote next to it only reaches player victims).
+-- GameModeService subscribes for mode scoring.
+EffectService.CharacterDied = Signal.new()
 
 function EffectService.SetAttHit(hited)
 	hited:SetAttribute("IsBlocking", false)
@@ -427,7 +436,9 @@ function EffectService:Apply(context: effectHitCtx)
 		flyBack(context.hitPart, normalizedForce)
 	end
 
-	if context.damage then
+	-- Match over: GameModeService raised the flag, all combat damage is frozen
+	-- (one choke point covers melee and guns — both land here).
+	if context.damage and not workspace:GetAttribute(GameModeConstants.MATCH_OVER_ATTRIBUTE) then
 		local wasAlive = defender_humanoid.Health > 0
 		defender_humanoid:TakeDamage(context.damage)
 
@@ -450,6 +461,7 @@ function EffectService:Apply(context: effectHitCtx)
 		-- neither a player's Camera nor the NPC brain's unparented Camera replicate,
 		-- and the NPC aims from its Head anyway (AttackController.Shoot).
 		if wasAlive and defender_humanoid.Health <= 0 then
+			EffectService.CharacterDied:Fire(attacker_char, defender_char)
 			local defenderPlayer = Players:GetPlayerFromCharacter(defender_char)
 			if defenderPlayer then
 				remotes.PlayerDied:FireClient(defenderPlayer, { killer = attacker_char })

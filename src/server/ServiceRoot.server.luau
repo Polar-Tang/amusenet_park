@@ -48,10 +48,13 @@ end)
 
 ---------- QUESTS ----------
 local QuestHandler = require(SSS.Server.Quests.QuestHandler)
+---------- GAME MODE ----------
+local GameModeService = require(RS.Nevermore.Custom.gamemode.src.Server.GameModeService)
 
 ----- ------------------------ START SERVICEBAG -----------------------------
 serviceBag:GetService(AttacksBinders)
 serviceBag:GetService(QuestHandler)
+serviceBag:GetService(GameModeService)
 serviceBag:Init()
 
 serviceBag:Start()
@@ -104,6 +107,7 @@ local CollectionService = game:GetService("CollectionService")
 
 ------------------ Quests (live per-player state, saved on leave) ------------------
 local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local NpcSpawner = require(ServerScriptService.Server.NPC.NpcSpawner)
 local QuestsData = require(RS.Shared.Quests.QuestsData)
@@ -159,7 +163,10 @@ local function onCharacterAdded(char: Model)
 			if not animHandler:IsInitialized() then
 				animHandler:Init(humanoid)
 			end
-			characterCtxUtils:EquipDefaultWeapon(char)
+			-- LMS seam: that mode spawns players empty-handed.
+			if GameModeService:ShouldEquipDefaultWeapon() then
+				characterCtxUtils:EquipDefaultWeapon(char)
+			end
 		end)
 
 	local hum: Humanoid = char:WaitForChild("Humanoid")
@@ -190,11 +197,19 @@ Players.PlayerAdded:Connect(function(player)
 	end
 
 	QuestService:InitPlayer(player, player, savedQuests)
+	local playerQuests = QuestHandler:GetHandler(player)
+	for questName, questData in pairs(playerQuests:GetSaveData()) do
+		ReplicatedStorage.Shared.RemoteEvents.QuestProgressRemote:FireClient(player, questData)
+	end
 end)
 -- Respawn gate: the client's DeathScreen fires this when the player clicks
 -- the Roact respawn button. Only honored while actually dead — otherwise it
 -- would be a free teleport-to-spawn exploit.
 RS.Shared.RemoteEvents.RespawnRequest.OnServerEvent:Connect(function(player)
+	-- Game-mode gate: LMS-style modes disable respawning entirely.
+	if not GameModeService:CanRespawn(player) then
+		return
+	end
 	local char = player.Character
 	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 	if humanoid and humanoid.Health > 0 then

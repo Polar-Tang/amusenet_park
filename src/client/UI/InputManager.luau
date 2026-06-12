@@ -60,11 +60,13 @@ local function ensureWeapon()
 	if not WeaponBinderStarted then
 		WeaponBinderStarted = BinderProviderInitialized:Get("Armed")
 	end
-	if not weapon then
+	-- Respawn replaces the character Model; the old bound class is destroyed
+	-- on untag, so a cached context must be re-resolved against the live char.
+	if not weapon or weapon.Char ~= plr.Character then
 		weapon = WeaponBinderStarted:Get(plr.Character)
 		_G.PlayerWeaponBinder = weapon
 	end
-	if weapon and not weapon:GetStrategy() then
+	if not weapon or not weapon:GetStrategy() then
 		return false
 	end
 	return true
@@ -82,6 +84,10 @@ function InputManager.Init(data: InputManagerInit)
 			return
 		end
 
+		if not ensureWeapon() then
+			return
+		end
+
 		-- Q modifier for movement skills
 		if UserInputSer:IsKeyDown(Enum.KeyCode.LeftControl) then
 			weapon:Execute(Enum.KeyCode.LeftControl, { direction = "forward" })
@@ -89,10 +95,6 @@ function InputManager.Init(data: InputManagerInit)
 		end
 		if UserInputSer:IsKeyDown(Enum.KeyCode.Space) then
 			weapon:Execute(Enum.KeyCode.LeftControl, { stop = true })
-			return
-		end
-
-		if not ensureWeapon() then
 			return
 		end
 

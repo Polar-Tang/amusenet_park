@@ -24,6 +24,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
+local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
 
 local NpcSpawner = {}
 
@@ -104,14 +105,20 @@ end
 
 	@param templates { Model } -- pre-fetched once by Spawn to avoid re-scanning
 	@param goals { BasePart }
+	@param teamId string? -- game-mode team; written as the replicated GameTeam attribute
 ]=]
-function NpcSpawner.SpawnOne(templates: { Model }, goals: { BasePart }): Model
+function NpcSpawner.SpawnOne(templates: { Model }, goals: { BasePart }, teamId: string?): Model
 	local template = templates[random:NextInteger(1, #templates)]
 	local goal = goals[random:NextInteger(1, #goals)]
 
 	local npc = template:Clone()
 	unanchor(npc)
 	npc:PivotTo(CFrame.new(spawnPositionFor(goal)))
+	if teamId then
+		-- Before the tag: binders (and the team-aware damage check they feed)
+		-- must see a fully prepared rig the moment they construct.
+		npc:SetAttribute(GameModeConstants.TEAM_ATTRIBUTE, teamId)
+	end
 	npc.Parent = Workspace
 
 	-- Tag last: the binder constructor runs the moment the tag lands, and it
@@ -126,9 +133,10 @@ end
 	the entry point the lobby signal drives.
 
 	@param count number
+	@param teamIds { string }? -- optional per-bot team, indexed 1..count
 	@return { Model } -- the spawned rigs
 ]=]
-function NpcSpawner.Spawn(count: number): { Model }
+function NpcSpawner.Spawn(count: number, teamIds: { string }?): { Model }
 	assert(type(count) == "number" and count > 0, "[NpcSpawner] count must be a positive number")
 
 	local templates = getModelTemplates()
@@ -136,8 +144,8 @@ function NpcSpawner.Spawn(count: number): { Model }
 	assert(#goals > 0, "[NpcSpawner] no goal parts found (tag a part `NPC_goals` or name one `goal_*`)")
 
 	local spawned = {}
-	for _ = 1, count do
-		table.insert(spawned, NpcSpawner.SpawnOne(templates, goals))
+	for index = 1, count do
+		table.insert(spawned, NpcSpawner.SpawnOne(templates, goals, teamIds and teamIds[index]))
 	end
 
 	return spawned

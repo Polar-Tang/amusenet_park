@@ -1,4 +1,18 @@
+--[=[
+	@function canPlayerDamageHumanoid
+	Friendly-fire gate, shared by client hit prediction and server validation.
+	`player` may be a real Player or a getCharacterActor fake (NPC rigs).
+
+	Teams resolve through the game-mode `resolveTeam` rule (Player.Team when
+	not Neutral, else the rig's replicated GameTeam attribute). A side with no
+	team allows damage — exactly the pre-gamemode behavior for neutral players
+	and dummy rigs — so combat outside team modes is untouched.
+]=]
+
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local resolveTeam = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.resolveTeam)
 
 local function canPlayerDamageHumanoid(player: Player, taggedHumanoid: Humanoid): boolean
 	-- If the humanoid is already dead, no need to apply more damage
@@ -6,20 +20,17 @@ local function canPlayerDamageHumanoid(player: Player, taggedHumanoid: Humanoid)
 		return false
 	end
 
-	local taggedCharacter = taggedHumanoid.Parent
-	local taggedPlayer = Players:GetPlayerFromCharacter(taggedCharacter)
-	-- If the player tagged a non-player humanoid then allow damage
-	if not taggedPlayer then
+	local taggedCharacter = taggedHumanoid.Parent :: Model?
+	local attackerTeam = resolveTeam(player.Character, player)
+	local defenderTeam = resolveTeam(taggedCharacter, Players:GetPlayerFromCharacter(taggedCharacter))
+
+	-- Either side teamless (neutral player, dummy, pre-match) => allow damage
+	if not attackerTeam or not defenderTeam then
 		return true
 	end
 
-	if player.Neutral or taggedPlayer.Neutral then
-		-- If either player is neutral (i.e. not on a team) then allow damage
-		return true
-	else
-		-- Only allow damage if the players are not on the same team
-		return player.Team ~= taggedPlayer.Team
-	end
+	-- Only allow damage across teams
+	return attackerTeam ~= defenderTeam
 end
 
 return canPlayerDamageHumanoid

@@ -1,16 +1,21 @@
 --[=[
 	@class MatchListener
 
-	Receives the lobby's "match found" broadcast and fills this reserved server
-	with bots. The lobby publishes, once per match:
+	Receives the lobby's "match found" broadcast and starts this reserved
+	server's match (game mode + bots). The lobby publishes, once per match:
 
 		MessagingService:PublishAsync(Config.MATCH_FOUND_TOPIC, {
 			matchId = HttpService:GenerateGUID(false),
 			accessCode = accessCode,
 			userIds = userIds,
 			botCount = botCount,
+			mode = mode, -- GameModeConfig key; omitted => DEFAULT_MODE
 			privateServerId = privateServerId, -- see "Which server" below
 		})
+
+	The payload is handed to GameModeService:StartMatch, which resolves the
+	mode strategy (TDM spawns + team-assigns the bots itself — this script no
+	longer drives NpcSpawner directly).
 
 	"Which server" — MessagingService broadcasts to *every* running server in
 	the universe, so the payload must name the target server and that server
@@ -23,40 +28,55 @@
 
 	Boot timing — MessagingService does NOT queue for a server that hasn't
 	started yet. If the lobby publishes the instant it reserves, this server
-	isn't up and never hears it. So we also read `botCount` out of TeleportData
-	on the first arriving player: the teleport is what boots this server, so
-	that path can't miss. Whichever trigger arrives first wins; `_state.filled`
-	makes the spawn run exactly once per server (a reserved server hosts one
-	match).
+	isn't up and never hears it. So we also read the payload out of
+	TeleportData on the first arriving player: the teleport is what boots this
+	server, so that path can't miss. Whichever trigger arrives first wins;
+	`_state.filled` makes the start run exactly once per server (a reserved
+	server hosts one match). A third trigger covers everything else: after
+	STUDIO_FALLBACK_SECONDS with no payload, Studio playtests and direct-join
+	(non-reserved) servers start DEFAULT_MODE with a few bots.
 ]=]
 
 local MessagingService = game:GetService("MessagingService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local helpers = require(ServerScriptService.Server.Utils.helpers)
 local Constanst = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
-local NpcSpawner = require(script.Parent.NpcSpawner)
+local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
+local GameModeService = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.GameModeService)
 
 -- MUST equal the lobby's `Config.MATCH_FOUND_TOPIC`. Different place, separate
 -- codebase, so it can't be shared by require — keep the two strings in sync.
 
--- One match per reserved server: once we've spawned the bots we ignore every
--- later trigger (the redundant MessagingService/TeleportData paths, retries).
+-- One match per reserved server: once we've started it we ignore every later
+-- trigger (the redundant MessagingService/TeleportData paths, retries).
 local _state = { filled = false }
 
 --[=[
-	Spawns `botCount` bots, exactly once. `source` is just for the log line so
-	we can see which trigger won the race. A spawn failure un-latches `filled`
-	so the other trigger still gets a shot.
+	Starts the match exactly once. `source` is just for the log line so we can
+	see which trigger won the race. A start failure un-latches `filled` so the
+	other trigger still gets a shot.
 ]=]
-local function fill(botCount: any, source: string)
+local function fill(data: any, source: string)
 	if _state.filled then
 		return
 	end
-	if type(botCount) ~= "number" or botCount <= 0 then
-		warn(`[MatchListener] ignoring {source} trigger: botCount is not a positive number ({tostring(botCount)})`)
+	if type(data) ~= "table" then
+		warn(`[MatchListener] ignoring {source} trigger: payload is not a table`)
+		return
+	end
+
+	local botCount = data.botCount
+	local mode = data.mode
+	local hasBots = type(botCount) == "number" and botCount >= 0
+	local hasMode = type(mode) == "string"
+	-- A mode-only payload is a valid all-human match (botCount = 0); a
+	-- bots-only payload is the legacy lobby shape (mode defaults server-side).
+	if not hasBots and not hasMode then
+		warn(`[MatchListener] ignoring {source} trigger: payload has neither botCount nor mode`)
 		return
 	end
 
@@ -64,13 +84,17 @@ local function fill(botCount: any, source: string)
 	-- returnDataOrError pushes the failure to the client debug console (readable
 	-- from a published-game client) and returns falsy on error.
 	local ok = helpers.returnDataOrError(nil, function()
-		NpcSpawner.Spawn(botCount)
+		GameModeService:StartMatch({
+			mode = if hasMode then mode else nil,
+			botCount = if hasBots then botCount else 0,
+			matchId = data.matchId,
+		})
 	end)
 	if ok then
-		print(`[MatchListener] filled server with {botCount} bots (via {source})`)
+		print(`[MatchListener] match started: mode={tostring(mode)} bots={tostring(botCount)} (via {source})`)
 	else
 		_state.filled = false
-		warn(`[MatchListener] NpcSpawner.Spawn failed (via {source})`)
+		warn(`[MatchListener] GameModeService:StartMatch failed (via {source})`)
 	end
 end
 
@@ -112,7 +136,7 @@ task.spawn(function()
 		MessagingService:SubscribeAsync(Constanst.MATCH_FOUND_TOPIC, function(message)
 			local data = message.Data
 			if isForThisServer(data) then
-				fill(data.botCount, "MessagingService")
+				fill(data, "MessagingService")
 			end
 		end)
 	end)
@@ -121,10 +145,8 @@ task.spawn(function()
 	end
 end)
 
-
-
--- Trigger 2: botCount carried in TeleportData on the players the lobby sent.
--- The teleport is what boots this server, so this path can't be missed.
+-- Trigger 2: the payload carried in TeleportData on the players the lobby
+-- sent. The teleport is what boots this server, so this path can't be missed.
 local function tryTeleportData(player: Player)
 	if _state.filled then
 		return
@@ -138,8 +160,8 @@ local function tryTeleportData(player: Player)
 	end
 
 	local teleportData = joinData.TeleportData
-	if type(teleportData) == "table" and teleportData.botCount then
-		fill(teleportData.botCount, "TeleportData")
+	if type(teleportData) == "table" and (teleportData.botCount or teleportData.mode) then
+		fill(teleportData, "TeleportData")
 	end
 end
 
@@ -147,3 +169,18 @@ for _, player in Players:GetPlayers() do
 	task.spawn(tryTeleportData, player)
 end
 Players.PlayerAdded:Connect(tryTeleportData)
+
+-- Trigger 3: no payload ever arrives — Studio playtests and direct-join
+-- servers. Gated off real reserved servers so a slow lobby publish is never
+-- preempted by the default mode.
+task.delay(GameModeConstants.STUDIO_FALLBACK_SECONDS, function()
+	if _state.filled then
+		return
+	end
+	if RunService:IsStudio() or game.PrivateServerId == "" then
+		fill({
+			mode = GameModeConstants.DEFAULT_MODE,
+			botCount = GameModeConstants.STUDIO_FALLBACK_BOT_COUNT,
+		}, "fallback")
+	end
+end)

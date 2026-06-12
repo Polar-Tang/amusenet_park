@@ -527,9 +527,11 @@ We are using a quest handler version like the one from the shooter place. The de
 We are using a queu, if it doesn't find any player fills the missing players with bots, we need to sent an image to the gameServer to create a quantity of bots.
 
 ### distintos modos
-- Deadmatch por equipos
-- EL último en pie gana
-- battle royale
+Define an architecture for using the same source file and different game mods
+King of the Hill (koh)
+Capture the Flag (ctf)
+Last Man Standing (lms)
+Team Deathmatch (tdm)
 ### Battle pass 
 [] subir de nivel te va dando recompensa
 [] si sos jugador premium lo tenés desbloqueado
@@ -555,6 +557,46 @@ estilizado como wonkeland
 - invnetario/personalizar
 - leaderboard
 ### Modos de juego
+The lobby needs to be changed a little bit to send game modes to the other place
+### Lobby quests mode
+We should change the PlayButton interaction, it nows should pop up a sign.
+It has a close button which is a red frame with an x for textlabel and close functionallity, you can use a context if you want to, There are some providers and context in the context folder, a context consumer use the useContextUtility like this:
+```
+```
+function Crosshair:render()
+	local withCtx = useContext({ CrosshairContext = CrosshairContext })
+
+	return withCtx(function(ctx)
+		local crosshairCtx = ctx.CrosshairContext
+```
+```
+So the sign design, it occupies most the screen and it shows different 'game modes' which are columns, every column is a component so we DRY and it takes description, title, image and button cb as props, the titles are the folowings
+King of the Hill (koh)
+Capture the Flag (ctf)
+Last Man Standing (lms)
+Team Deathmatch (tdm)
+The callbacks do fire the server with the game mode: koh ctf lms tdm
+Get creative with description and use placeholder as images
+#### Backend
+joinQueue(player: Player) of Queu manager needs to craft a payload for the reserved server
+The payload type goes like:
+export type MatchPayload = {
+	mode: string?,
+	botCount: number?,
+	matchId: string?,
+}
+
+### What happens to quests?
+Currently i'm trying to access the quests 
+
+
+### Create a tutorial handler
+We need a tutorial handler for a ui. It should be built in roact 
+This handler expose a start method which goes like:
+Highlight a location: It's like you covering the entire UI with a frame opacity, only leaving a frame full of borders radious with no index, as result the only that can be clicked is the part with the border frame that has no this opaciti zindex covering it. Param: A position and size
+Animated hand pointing: There's an image that can tween its position, rotation, Optionally the size. Param: Start position and an end position, the same for rotataion
+We should manually call the Destroy method which set back everything to normal and cleanups connection via maid:DoCleaning if any
+
 
 [] Find out different aim position and all the weapons should have the posibility to enable this camera mode
 

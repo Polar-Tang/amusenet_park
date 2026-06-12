@@ -14,8 +14,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
+local canPlayerDamageHumanoid = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.canPlayerDamageHumanoid)
 local findAimAssistTarget = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.findAimAssistTarget)
 local getCharacterActor = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getCharacterActor)
+local resolveTeam = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.resolveTeam)
 local NpcConstants = require(ReplicatedStorage.Nevermore.Custom.npc.src.Shared.NpcConstants)
 
 local TargetController = {}
@@ -36,8 +38,22 @@ export type TargetController = typeof(setmetatable(
 ))
 
 -- The candidate pool (everything tagged "Armed") includes other NPCs.
-local function isPlayerCharacter(character: Model): boolean
-	return Players:GetPlayerFromCharacter(character) ~= nil
+-- Teamless NPCs (dummies, pre-match rigs) are never hunted — without this,
+-- two teamless NPCs would hunt each other (teamless pairs always pass the
+-- damage check). Players and team-mode bots are valid targets when the
+-- damage check says we could actually hurt them (different team or neutral).
+local function isValidTarget(npc: Model, character: Model): boolean
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return false
+	end
+
+	local isPlayer = Players:GetPlayerFromCharacter(character) ~= nil
+	if not isPlayer and not resolveTeam(character, getCharacterActor(character)) then
+		return false
+	end
+
+	return canPlayerDamageHumanoid(getCharacterActor(npc), humanoid)
 end
 
 function TargetController.new(npc: Model, serviceBag: any): TargetController
@@ -78,7 +94,9 @@ function TargetController.Scan(self: TargetController): BasePart?
 		self._visionCamera,
 		NpcConstants.VISION_RANGE,
 		NpcConstants.VISION_FOV_DEG,
-		isPlayerCharacter
+		function(character: Model)
+			return isValidTarget(self.npc, character)
+		end
 	)
 
 	if target then
@@ -110,7 +128,6 @@ function TargetController.isCloserEnough(self: TargetController): boolean?
 		return
 	end
 	local distance = (self._target.Position - self.hrp.Position).Magnitude
-	print("distance ", distance)
 	return  (distance <= 15)
 end
 function TargetController.Destroy(self: TargetController)
