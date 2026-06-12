@@ -12,7 +12,6 @@ function Ak_47.new(char, serviceBag)
 	local data = table.clone(WeaponStats)
 	local self = setmetatable(WeaponBase.new(char, serviceBag, data), Ak_47)
 	self._dmgCount = 0
-	self.tool:SetAttribute("_ammo", self.weapon_stats._ammo)
 
 	return self
 end

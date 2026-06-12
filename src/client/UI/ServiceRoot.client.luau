@@ -14,8 +14,9 @@ local Animate = require(script.Parent.Animate)
 mountShit:Init()
 
 mountShit:registryObserver("WeaponClient", "heavy")
- mountShit:registryObserver("AnimationHandler", "heavy")
- mountShit:registryObserver("NevermoreLoaded", "heavy")
+mountShit:registryObserver("AnimationHandler", "heavy")
+mountShit:registryObserver("NevermoreLoaded", "heavy")
+mountShit:registryObserver("npcLoaded", "heavy")
 
 mountShit:Start()
 
@@ -30,6 +31,7 @@ local CameraMediator = require(script.Parent.cameraHandlers.camerasStates.Camera
 --------------------------- Binders -----------------------------
 
 local Binder = Nevermore("Binder")
+local Maid = Nevermore("Maid")
 local WeaponClient = Nevermore("WeaponClient") -- THIS IS NEW
 local AnimationHandler = Nevermore("AnimationHandler")
 local NPCClient = Nevermore("NPCClient")
@@ -69,7 +71,6 @@ local characterCtxUtils = require(ReplicatedStorage.Shared.Helpers.shared_servic
 local FadeText = require(ReplicatedStorage.Shared.utils.FadeText)
 
 local player = Players.LocalPlayer
-local player_character = player.Character or player.CharacterAdded:Wait()
 
 local WeaponBinderStarted = BinderProviderInitialized:Get("Armed")
 
@@ -78,7 +79,7 @@ WeaponBinderStarted:GetClassAddedSignal():Connect(function(binder)
 
 	-- If there are more shit that App depends to, we can use a bool instance, and listen to this att, when it's true we require it
 
-	if player_character == character then
+	if Players:GetPlayerFromCharacter(character) == player then
 		mountShit:markObserver("WeaponClient", true)
 	end
 end)
@@ -88,9 +89,8 @@ AnimBinder:GetClassAddedSignal():Connect(function(binder)
 	local character: Model = binder.Char
 	character:SetAttribute("binder-AnimationHandler-charged", true)
 	mountShit:markObserver("AnimationHandler", true)
-	if not binder:IsInitialized() then 
+	if not binder:IsInitialized() then
 		binder:Init(character:WaitForChild("Humanoid"))
-		
 	end
 
 	-- Drive the default character animations through this handler, but only for
@@ -110,6 +110,7 @@ NPCBinder:GetClassAddedSignal():Connect(function(npcBinder)
 		npcBinder:Init()
 		npcBinder:Start()
 	end)
+	mountShit:markObserver("npcLoaded", true)
 end)
 
 -------------------------START SERVICEBAG -----------------------------
@@ -127,7 +128,6 @@ isServiceBagInitialized = true
 ------------- ONCE INITIALIZED -------------
 
 do
-	
 	mountShit:registerFinishCB(function()
 		local inputManager = require(script.Parent.InputManager)
 		inputManager.Init({ serviceBag = serviceBag })
@@ -138,54 +138,89 @@ do
 		require(script.Parent.AttckInvockerClient)
 		-- require(script.Parent.test.test)
 
-		local weaponClient = WeaponBinderStarted:Get(player_character)
 		local MainApp = require(script.Parent.RoactUI.MainApp)
 
+		-- Pass the binder, not the bound class: the WeaponClient is
+		-- character-scoped, so MainApp re-resolves it on every rebind
+		-- (respawn) and updates the Roact tree's props.
 		MainApp({
-			weaponClient = weaponClient,
+			weaponBinder = WeaponBinderStarted,
 			cameraMediator = cameraMediator,
 		})
 	end)
 	mountShit:markObserver("NevermoreLoaded", true)
 end
 
--- local humanoid: Humanoid = player_character:WaitForChild("Humanoid")
+-- Tool equip/unequip connections live on the character Model, so they must
+-- be rebuilt on every respawn. The maid drops the previous character's
+-- connections on re-entry (covers CharacterAdded firing before the old
+-- Model is destroyed).
+local characterMaid = Maid.new()
 
--- Tool equip: a Tool becomes a child of the character. Tell the server,
--- then locally init anims + install the matching weapon strategy.
-player_character.ChildAdded:Connect(function(a0: Instance)
-	if a0:IsA("Tool") then
-		ReplicatedStorage.Shared.RemoteEvents.Equipment:FireServer({
-			tool = a0,
-			has_to_equip = true,
-		})
+local function onCharacterAdded(character: Model)
+	characterMaid:DoCleaning()
 
-		characterCtxUtils:InitChar(player_character, tostring(a0.Name:lower()))
+	-- Default loadout: a fresh character has no Tool, so no ChildAdded fires.
+	-- Equip the local fist strategy once BOTH binders are up for this character
+	-- (the server equips its own side from its ServiceRoot; no remote needed).
+	-- Same AnimationHandler-lag guard as the server: fist is melee, its anims
+	-- must resolve, so make sure the handler is initialized before InitChar.
+	WeaponBinderStarted:Promise(character)
+		:Then(function()
+			return AnimBinder:Promise(character)
+		end)
+		:Then(function(animHandler)
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if not humanoid then
+				return
+			end
+			if not animHandler:IsInitialized() then
+				animHandler:Init(humanoid)
+			end
+			characterCtxUtils:EquipDefaultWeapon(character)
+		end)
 
-		local animHandler = AnimBinder:Get(player_character)
-		animHandler:LoadAnimation(true, "Equip")
-		
-		animHandler:LoadAnimation(true, "Equiped") -- Equiped is priority core so it's ovewrited
-	end
-end)
+	-- Tool equip: a Tool becomes a child of the character. Tell the server,
+	-- then locally init anims + install the matching weapon strategy.
+	characterMaid:GiveTask(character.ChildAdded:Connect(function(a0: Instance)
+		if a0:IsA("Tool") then
+			ReplicatedStorage.Shared.RemoteEvents.Equipment:FireServer({
+				tool = a0,
+				has_to_equip = true,
+			})
 
--- Tool unequip: a Tool leaves the character (drop / swap to none).
--- Notify the server and locally destroy the current strategy via
--- `UnequipChar`, which calls `UnequiTool` on the "Armed" binder.
--- On a hot swap (Tool A removed -> Tool B added in the same frame),
--- this runs first; the subsequent `ChildAdded` then installs B cleanly.
-player_character.ChildRemoved:Connect(function(child: Instance)
-	if child:IsA("Tool") then
-		ReplicatedStorage.Shared.RemoteEvents.Equipment:FireServer({
-			tool = child,
-			has_to_equip = false,
-		})
-		local animHandler = AnimBinder:Get(player_character)
+			characterCtxUtils:InitChar(character, tostring(a0.Name:lower()))
 
-		animHandler:LoadAnimation(false, "Equiped")
-		characterCtxUtils:UnequipChar(player_character)
-	end
-end)
+			local animHandler = AnimBinder:Get(character)
+			animHandler:LoadAnimation(true, "Equip")
+
+			animHandler:LoadAnimation(true, "Equiped") -- Equiped is priority core so it's ovewrited
+		end
+	end))
+
+	-- Tool unequip: a Tool leaves the character (drop / swap to none).
+	-- Notify the server and locally destroy the current strategy via
+	-- `UnequipChar`, which calls `UnequiTool` on the "Armed" binder.
+	-- On a hot swap (Tool A removed -> Tool B added in the same frame),
+	-- this runs first; the subsequent `ChildAdded` then installs B cleanly.
+	characterMaid:GiveTask(character.ChildRemoved:Connect(function(child: Instance)
+		if child:IsA("Tool") then
+			ReplicatedStorage.Shared.RemoteEvents.Equipment:FireServer({
+				tool = child,
+				has_to_equip = false,
+			})
+			local animHandler = AnimBinder:Get(character)
+
+			animHandler:LoadAnimation(false, "Equiped")
+			characterCtxUtils:UnequipChar(character)
+		end
+	end))
+end
+
+player.CharacterAdded:Connect(onCharacterAdded)
+if player.Character then
+	onCharacterAdded(player.Character)
+end
 
 ReplicatedStorage.Shared.RemoteEvents.countDamage.OnClientEvent:Connect(function(data)
 	local dmg = data.dmg

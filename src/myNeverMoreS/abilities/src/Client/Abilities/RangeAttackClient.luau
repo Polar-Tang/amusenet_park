@@ -76,7 +76,6 @@ function AttackDistanceAbility.new(config: construnctor)
 	local self = setmetatable(BaseAbility.new(config), AttackDistanceAbility)
 	self._lastAttackID = 0
 
-	self.ammo = 0
 	self.attackType = config.attackType
 	self.player = Players:GetPlayerFromCharacter(self.character)
 
@@ -468,10 +467,6 @@ function AttackDistanceAbility._shot(self: AttackDistanceAbilityType)
 	end
 	self._lastShotTimestamp = now
 
-	self.ammo -= 1
-
-	-- self.guiController:setAmmo(self.ammo)
-
 	local rayDirections = getRayDirections(origin, raysPerShot, math.rad(spread), now)
 	for index, direction in rayDirections do
 		rayDirections[index] = direction * range
@@ -524,6 +519,23 @@ function AttackDistanceAbility.recoil(self: AttackDistanceAbilityType)
 	end
 end
 
+-- Dry-fire gate, mirroring the server's authoritative check in
+-- RangeAttack.Execute. The Tool attributes are the shared ammo store (every
+-- ability holds a private clone of weapon_stats, so they could never share a
+-- counter). nil-tolerant: a Tool without the attribute (not yet replicated,
+-- or a non-gun) never blocks.
+function AttackDistanceAbility._canShoot(self: AttackDistanceAbilityType): boolean
+	local tool = self._tool
+	if not tool then
+		return true
+	end
+	if tool:GetAttribute(Constants.RELOADING_ATTRIBUTE) then
+		return false
+	end
+	local ammo = tool:GetAttribute(Constants.AMMO_ATTRIBUTE)
+	return ammo == nil or ammo > 0
+end
+
 function AttackDistanceAbility.Execute(self: AttackDistanceAbilityType, params)
 	local CHAR = self.character
 	local frontenShit = params
@@ -532,6 +544,20 @@ function AttackDistanceAbility.Execute(self: AttackDistanceAbilityType, params)
 		if CHAR:GetAttribute("Attacking") or CHAR:GetAttribute("Swing") or CHAR:GetAttribute("IsDefending") then
 			return
 		end
+	end
+
+	if not self:_canShoot() then
+		-- Auto-reload on empty: dispatch through the weapon context by key —
+		-- the same path InputManager/MobileButtons use — so this ability never
+		-- holds a reference to the reload ability. ReloadAbilityClient's own
+		-- gates (cooldown + `_reloading` attribute) make hammering this from
+		-- the continuous-fire loop a no-op. Works for NPC-owned instances too:
+		-- `_weaponHandler` is that character's Armed context on this client.
+		local tool = self._tool
+		if tool and not tool:GetAttribute(Constants.RELOADING_ATTRIBUTE) then
+			self._weaponHandler:Execute(Constants.KEYBOARD_RELOAD_KEY_CODE)
+		end
+		return
 	end
 
 	if self:GetCD() then

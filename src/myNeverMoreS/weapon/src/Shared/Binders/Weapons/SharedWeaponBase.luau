@@ -5,7 +5,9 @@ local DefenseBaseAbility = require(ReplicatedStorage.Nevermore.Custom.abilities.
 local AttackBaseAbility = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Abilities.AttackBaseAbility)
 local MovementAbility = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Abilities.MovementAbility)
 local RangeAttack = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Abilities.RangeAttack)
+local ReloadAbility = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Abilities.ReloadAbility)
 local RangeAttackClient = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Client.Abilities.RangeAttackClient)
+local ReloadAbilityClient = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Client.Abilities.ReloadAbilityClient)
 local MovementAbillityClient = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Client.Abilities.MovementAbillityClient)
 local AttackBaseClient = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Client.Abilities.AttackBaseClient)
 
@@ -70,6 +72,8 @@ function SharedWeaponBase:_createAbilities(attacks)
 				skill = MovementAbility.new(config)
 			elseif config.type == "Range" then
 				skill = RangeAttack.new(config)
+			elseif config.type == "Reload" then
+				skill = ReloadAbility.new(config)
 			else
 				continue
 			end
@@ -83,6 +87,8 @@ function SharedWeaponBase:_createAbilities(attacks)
 				skill = MovementAbillityClient.new(config)
 			elseif config.type == "Attack" then
 				skill = AttackBaseClient.new(config)
+			elseif config.type == "Reload" then
+				skill = ReloadAbilityClient.new(config)
 			else
 				print("unknown ability ", spec)
 				continue

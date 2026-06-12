@@ -53,7 +53,7 @@ local function PCPeephole(throwCallback: (Vector3) -> (), _finish: () -> ()): ()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 
 	-- Rebuilt each raycast so respawns / joins / leaves stay covered. The parts are
-	-- tagged server-side in CombatMediator.PlayerAdded.
+	-- tagged server-side in CombatMediator.CharacterAdded.
 	local function refreshCharacterFilter()
 		raycastParams.FilterDescendantsInstances = CollectionService:GetTagged(Constants.peepholeExclude)
 	end

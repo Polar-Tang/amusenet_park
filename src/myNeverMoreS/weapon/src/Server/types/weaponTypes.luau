@@ -292,7 +292,6 @@ export type AttackDistanceAbilityCLient = BaseAbility & {
 	special_attack: boolean?,
 	attackId: string,
 	weaponBinder: any,
-	ammo: number,
 	_playerMoved: boolean,
 	_lastPlayerCFrame: CFrame,
 	_currentTween: Tween?,
@@ -356,6 +355,9 @@ export type AttackDistanceAbilityCLient = BaseAbility & {
 	Execute: (self: AttackDistanceAbility) -> (),
 	UnsetAttributes: (self: AttackDistanceAbility) -> (),
 
+	-- Dry-fire gate reading the Tool's `_ammo` / `_reloading` attributes
+	-- (the shared ammo store written by the server).
+	_canShoot: (self: AttackDistanceAbility) -> boolean,
 	_shot: (self: AttackDistanceAbility) -> (),
 	_getBinder: (self: AttackDistanceAbility) -> (),
 	recoil: (self: AttackDistanceAbility) -> (),

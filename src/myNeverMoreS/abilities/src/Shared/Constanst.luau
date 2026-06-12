@@ -2,7 +2,7 @@ local module = {}
 
 module["RAY_EXCLUDE_TAG"] = "RayExclude"
 module.NON_STATIC_TAG = "NonStatic"
--- Tag put on every player character part (CombatMediator.PlayerAdded) so the
+-- Tag put on every player character part (CombatMediator.CharacterAdded) so the
 -- grenade aimer raycasts can exclude all bodies via CollectionService:GetTagged.
 module.peepholeExclude = "PeepholeExclude"
 module.FIRE_MODE = {

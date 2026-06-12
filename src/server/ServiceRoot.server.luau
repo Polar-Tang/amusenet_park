@@ -10,6 +10,11 @@ local NeverMorePackages = RS.Nevermore
 local loader = NeverMorePackages:FindFirstChild("LoaderUtils", true).Parent
 local Nevermore = require(loader).bootstrapGame(NeverMorePackages)
 
+-- Manual respawn: the engine must NOT auto-load characters. The first spawn
+-- is issued in PlayerAdded below; every later one only happens when the dead
+-- client clicks the Roact respawn button (RespawnRequest handler below).
+Players.CharacterAutoLoads = false
+
 local ServiceBag = Nevermore("ServiceBag")
 local serviceBag = ServiceBag.new()
 
@@ -34,7 +39,7 @@ local Binders = {
 }
 ---------- USE BINDER PORVIDER ----------
 local BinderProvider = Nevermore("BinderProvider")
-local AttacksBinders 
+local AttacksBinders
 AttacksBinders = BinderProvider.new("Binders", function(self, serviceBag)
 	for tag, contructor in pairs(Binders) do
 		self:Add(Binder.new(tag, contructor, serviceBag, self))
@@ -71,7 +76,7 @@ end)
 local AnimBinder = BinderProviderStarted:Get("AnimationHandler")
 AnimBinder:GetClassAddedSignal():Connect(function(binder)
 	local character: Model = binder.Char
-	if not binder:IsInitialized() then 
+	if not binder:IsInitialized() then
 		binder:Init(character:WaitForChild("Humanoid"))
 	end
 end)
@@ -94,6 +99,7 @@ end
 --||PlayerAdded||--
 local Ragdoll = Nevermore("Ragdoll")
 local CombatMediator = require(SSS.Server.Combat.CombatMediator)
+local characterCtxUtils = require(RS.Shared.Helpers.shared_services.characterCtxUtils)
 local CollectionService = game:GetService("CollectionService")
 
 ------------------ Quests (live per-player state, saved on leave) ------------------
@@ -118,24 +124,59 @@ if not questsStoreOk then
 	warn("[ServiceRoot] - DataStore unavailable, quests will not persist: ", questsStore)
 	questsStore = nil
 end
-Players.PlayerAdded:Connect(function(player)
-	local char = player.Character or player.CharacterAdded:Wait()
-	-- Set collision groups for all descendants
-	local function setCollisionGroup(descendant)
+local function setCharacterCollider(char: Model)
+	for _, descendant in ipairs(char:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.CollisionGroup = "Players"
 		end
 	end
+end
 
-	for _, descendant in ipairs(char:GetDescendants()) do
-		setCollisionGroup(descendant)
-	end
-
+-- Character-scoped setup, re-run on EVERY spawn: CollectionService tags live
+-- on the character Model, so a respawned character starts untagged and no
+-- binder (Weapon/AnimationHandler/CD) would ever bind to it again.
+local function onCharacterAdded(char: Model)
+	setCharacterCollider(char)
 	CollectionService:AddTag(char, "AnimationHandler")
 	CollectionService:AddTag(char, "Armed")
 	CollectionService:AddTag(char, "CD")
-	------------------ TEST ------------------
-	CombatMediator.PlayerAdded(player)
+	CombatMediator.CharacterAdded(char)
+
+	-- Default loadout: a bare character never fires ChildAdded/Equipment,
+	-- so equip the fist strategy once BOTH binders are up (the client
+	-- equips its own side from its ServiceRoot). The AnimationHandler
+	-- auto-Init can lag behind its bind, so ensure it ourselves — fist is
+	-- melee and genuinely needs its animations.
+	WeaponBinderStarted:Promise(char)
+		:Then(function()
+			return AnimBinder:Promise(char)
+		end)
+		:Then(function(animHandler)
+			local humanoid = char:FindFirstChildOfClass("Humanoid")
+			if not humanoid then
+				return
+			end
+			if not animHandler:IsInitialized() then
+				animHandler:Init(humanoid)
+			end
+			characterCtxUtils:EquipDefaultWeapon(char)
+		end)
+
+	local hum: Humanoid = char:WaitForChild("Humanoid")
+	hum.Died:Connect(function()
+		Ragdoll:Tag(hum)
+	end)
+end
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(onCharacterAdded)
+	if player.Character then
+		task.spawn(onCharacterAdded, player.Character)
+	else
+		-- CharacterAutoLoads is off, so the first spawn is ours to issue —
+		-- after the CharacterAdded wiring above so it is never missed.
+		player:LoadCharacter()
+	end
 
 	------------------ QUESTS ------------------
 	local savedQuests = nil
@@ -149,19 +190,19 @@ Players.PlayerAdded:Connect(function(player)
 	end
 
 	QuestService:InitPlayer(player, player, savedQuests)
-	local playerQuests = QuestService:GetHandler(player)
-	-- Pool the quests: hand every registered quest to the player (no-op resync when it came from the save)
-	for questId in pairs(QuestsData.allQuests) do
-		playerQuests:AcceptQuest(questId)
-	end
-
-	-- TODO: NEED TO USE PLAYERbrio
-	local hum: Humanoid = char:WaitForChild("Humanoid")
-
-	hum.Died:Connect(function()
-		Ragdoll:Tag(hum)
-	end)
 end)
+-- Respawn gate: the client's DeathScreen fires this when the player clicks
+-- the Roact respawn button. Only honored while actually dead — otherwise it
+-- would be a free teleport-to-spawn exploit.
+RS.Shared.RemoteEvents.RespawnRequest.OnServerEvent:Connect(function(player)
+	local char = player.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health > 0 then
+		return
+	end
+	player:LoadCharacter()
+end)
+
 --||PlayerRemoving||--
 Players.PlayerRemoving:Connect(function(player)
 	-- PlayerAnimationHandler:RemovePlayer({ player = player })
@@ -171,10 +212,15 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 
 	if questsStore then
-		local saveOk, saveErr = pcall(questsStore.SetAsync, questsStore, tostring(player.UserId), playerQuests:GetSaveData())
+		local saveOk, saveErr =
+			pcall(questsStore.SetAsync, questsStore, tostring(player.UserId), playerQuests:GetSaveData())
 		if not saveOk then
 			warn("[ServiceRoot] - Failed to save quests for player ", player.UserId, saveErr)
 		end
+	end
+	
+	for questName, questProgress in pairs(playerQuests:GetSaveData().quests) do
+		game.ReplicatedStorage.Shared.RemoteEvents.clientDebugConsole:FireClient(player, "Quest: " .. questName .. ", " .. questProgress)
 	end
 
 	QuestService:RemovePlayer(player)
@@ -186,9 +232,9 @@ local RouletteItems = require(RS.Shared.items.roulleteItems)
 
 RS.Shared.RemoteEvents.RouletteSpinRemote.OnServerEvent:Connect(function(player)
 	local rarety = WeightedRandom.Pick({
-		{ value = "Common",   weight = 200 },
-		{ value = "Uncommon", weight = 80  },
-		{ value = "Epic",     weight = 12  },
+		{ value = "Common", weight = 200 },
+		{ value = "Uncommon", weight = 80 },
+		{ value = "Epic", weight = 12 },
 	})
 
 	-- Collect all rewards matching the drawn rarity.

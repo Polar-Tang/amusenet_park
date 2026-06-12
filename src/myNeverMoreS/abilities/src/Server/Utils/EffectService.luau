@@ -442,6 +442,20 @@ function EffectService:Apply(context: effectHitCtx)
 		})
 		weaponEnemy:RegisterAttackEffect(context.attackId, context)
 
+		-- Kill confirmation: this is the only place lethal damage lands, so it is
+		-- the one authoritative "attacker killed defender" signal. The killer is
+		-- sent as a character Model because it may be an NPC rig (getCharacterActor
+		-- fake players carry the rig in .Character, same field as real players).
+		-- The dead client fabricates the killer-cam CFrame from that Model's Head —
+		-- neither a player's Camera nor the NPC brain's unparented Camera replicate,
+		-- and the NPC aims from its Head anyway (AttackController.Shoot).
+		if wasAlive and defender_humanoid.Health <= 0 then
+			local defenderPlayer = Players:GetPlayerFromCharacter(defender_char)
+			if defenderPlayer then
+				remotes.PlayerDied:FireClient(defenderPlayer, { killer = attacker_char })
+			end
+		end
+
 		-- Quest progress by kind: every active quest of the kind advances on the same event
 		local attackerPlayer = Players:GetPlayerFromCharacter(attacker_char)
 		if attackerPlayer then

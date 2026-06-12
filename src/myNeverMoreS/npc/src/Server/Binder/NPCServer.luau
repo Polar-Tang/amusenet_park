@@ -4,7 +4,7 @@
 	The "NPC" binder, server side. The brain runs on a client (NPCClient);
 	this side only makes the rig a valid combatant and decides *which* client:
 	  * `new` tags AnimationHandler/CD/Armed (the same set players get in
-	    ServiceRoot.PlayerAdded) and mirrors CombatMediator.PlayerAdded's
+	    ServiceRoot.PlayerAdded) and mirrors CombatMediator.CharacterAdded's
 	    combat attributes, so the server hit pipeline treats the NPC exactly
 	    like a player character.
 	  * `Init` equips the rig's first Tool child through characterCtxUtils so
@@ -26,7 +26,7 @@ local characterCtxUtils = require(ReplicatedStorage.Shared.Helpers.shared_servic
 local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
 local NpcConstants = require(ReplicatedStorage.Nevermore.Custom.npc.src.Shared.NpcConstants)
 
--- Mirror of CombatMediator.PlayerAdded: abilities and AttckInvoker gate on
+-- Mirror of CombatMediator.CharacterAdded: abilities and AttckInvoker gate on
 -- these attributes, an NPC without them can neither swing nor be stunned.
 local COMBAT_ATTRIBUTES: { [string]: any } = {
 	Combo = 1,

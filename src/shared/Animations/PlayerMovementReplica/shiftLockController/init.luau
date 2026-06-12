@@ -54,9 +54,13 @@ function SmoothShiftLock.new(CameraService, armedBinder)
 	-- cached AimPosition attachment without per-frame FindFirstChild calls.
 	self._armedBinder = armedBinder
 
-
-	
 	self:CharacterAdded()
+	-- Session-lived connection (deliberately NOT in connectionsMaid, which is
+	-- destroyed on death): re-acquire the rig on every respawn, otherwise the
+	-- controller keeps driving the destroyed character forever.
+	LocalPlayer.CharacterAdded:Connect(function()
+		self:CharacterAdded()
+	end)
 	return self
 end
 
@@ -67,6 +71,9 @@ function SmoothShiftLock:CharacterAdded()
 	self.RootPart = self.Character:WaitForChild("HumanoidRootPart")
 	self.Humanoid = self.Character:WaitForChild("Humanoid")
 	self.Head = self.Character:WaitForChild("Head")
+	-- Character-scoped: the render loop re-resolves it lazily from the
+	-- "Armed" binder, so a stale (destroyed) WeaponClient must be dropped.
+	self._weaponClient = nil
 	--// Other
 	self.Camera = WorkspaceService.CurrentCamera
 	--// Setup

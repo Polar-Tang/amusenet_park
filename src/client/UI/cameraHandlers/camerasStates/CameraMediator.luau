@@ -10,6 +10,7 @@ local ServiceBag = require(ReplicatedStorage.Nevermore.Quenty.servicebag.Shared.
 local ValueObject = require(ReplicatedStorage.Nevermore.Quenty.valueobject.Shared.ValueObject)
 local CameraHandlerBase = require(script.Parent.CameraHandlerBase)
 local FirstPerson = require(script.Parent.FirstPerson)
+local KillerCam = require(script.Parent.KillerCam)
 local ThirdPerson = require(script.Parent.ThirdPerson)
 
 --[=[
@@ -46,6 +47,9 @@ function CameraMediator:Init(serviceBag)
 
 	self._isFirstPerson = self._maid:Add(ValueObject.new(false, "boolean"))
 	self._manualFirstPerson = false
+	-- True while the KillerCam death spectate is the active mode; gates the
+	-- _isFirstPerson observer so an FP/TP toggle can't evict the death cam.
+	self._isDead = false
 	return self
 end
 
@@ -78,20 +82,72 @@ function CameraMediator:Start(AttacksBinders)
 	end)
 
 	self._isFirstPerson:Observe():Subscribe(function(value)
-		if self._activeMode then
-			self._activeMode:Destroy()
-			self._activeMode = nil
+		-- While the death cam is up, remember the wanted mode but don't build
+		-- it — ExitDeathCam re-applies from _isFirstPerson.Value on respawn.
+		if self._isDead then
+			return
 		end
-		if value then
-			self._activeMode = FirstPerson.new(self._cameraState)
-		else
-			self._shiftLockControllerShit:ToggleShiftLock(true)
-			-- Pass the mediator so the strategy can read _aimTargetPosition (set by
-			-- TrackAim) and anchor its position offset on the character->target
-			-- direction while the auto-aim lock is active.
-			self._activeMode = ThirdPerson.new(self._cameraState, self)
-		end
+		self:_applyMode(value)
 	end)
+end
+
+--[=[
+	Swap the active mode strategy (FirstPerson / ThirdPerson). The effects and
+	_cameraState are untouched, as with every mode swap.
+]=]
+function CameraMediator:_applyMode(isFirstPerson: boolean)
+	if self._activeMode then
+		self._activeMode:Destroy()
+		self._activeMode = nil
+	end
+	if isFirstPerson then
+		self._activeMode = FirstPerson.new(self._cameraState)
+	else
+		self._shiftLockControllerShit:ToggleShiftLock(true)
+		-- Pass the mediator so the strategy can read _aimTargetPosition (set by
+		-- TrackAim) and anchor its position offset on the character->target
+		-- direction while the auto-aim lock is active.
+		self._activeMode = ThirdPerson.new(self._cameraState, self)
+	end
+end
+
+--[=[
+	Death cam: spectate the killer (player character OR NPC rig — KillerCam
+	fabricates the view from the replicated Head, since neither a remote
+	player's Camera nor the NPC brain's unparented Camera replicate). Called
+	by DeathScreen when the PlayerDied remote lands. `killerCharacter` may be
+	nil (environment death): the cam then just freezes where the player died.
+]=]
+function CameraMediator:EnterDeathCam(killerCharacter: Model?)
+	-- LockFirstPerson would fight a camera far away from the (dead) subject.
+	if self._isFirstPerson.Value then
+		self.player.CameraMode = Enum.CameraMode.Classic
+		self:applyClassicCameraDistance()
+	end
+
+	self._isDead = true
+	if self._activeMode then
+		self._activeMode:Destroy()
+		self._activeMode = nil
+	end
+	self._activeMode = KillerCam.new(self._cameraState, killerCharacter)
+end
+
+--[=[
+	Back to normal gameplay camera, in whatever FP/TP mode was selected before
+	(or toggled-to during) death. Called by DeathScreen on CharacterAdded.
+	Idempotent: a no-op when the death cam isn't up.
+]=]
+function CameraMediator:ExitDeathCam()
+	if not self._isDead then
+		return
+	end
+	self._isDead = false
+
+	if self._isFirstPerson.Value then
+		self.player.CameraMode = Enum.CameraMode.LockFirstPerson
+	end
+	self:_applyMode(self._isFirstPerson.Value)
 end
 
 function CameraMediator:ToggleFirstPerson()

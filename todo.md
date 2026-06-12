@@ -80,7 +80,8 @@ where the camera offset is derived from workspace.CurrentCamera's rotation (rota
 ## gameplaymap
 ### adding mmo
 Range attack client has an ammo but it does not much, use an ammo in combatConfig weapon (fist hasn't an ammo) discount in server, i don't rembember if it's an attribute but if it's you can directly render it in the client. If ammo in backend is cero do early return, 
-recharges de weapon is a brand new ability of the weapon and it's keycode is r, it sets an atribute like swing that doesn't allow _shot to execute, and unset it after a harcoded value (we will change that in the future)
+recharges de weapon is a brand new ability of the weapon and it's keycode is r. It's called from src/client/UI/RoactUI/components/MobileButtons.luau, inoutManager and directly from RangeAttack client, calling the weapon from the ability, not sure if registering this in create abilities as a callback or how could we do it. The ability actually is pretty dependant of m1, it only sets an atribute like swing that doesn't allow _shot to execute, and unset it after a harcoded value (we will change that in the future) and reset the _ammo that uses to be an internal value of M1 range attack client
+How we could update this and add this feature in cleanest way? we will need some special fiels and methods at RangeAttackClient?
 
 ### Quests
 - tres quests te garantiza subir 1 y medio
@@ -88,7 +89,6 @@ recharges de weapon is a brand new ability of the weapon and it's keycode is r, 
 [] pool the quests, hay una tabla con tittle, description and cb la cb puede usar distintas apis para checkear el su progreso
 - quest diarias (cada 24 horas) y quests semanales (should make it long live in per server and store them in DS)
 - Adding new quest to test, also create a component in src/client/UI/RoactUI that connects to QuestProgressRemote and share the quests list and update with its progession. If each quests require a different text you can consider move the quests pool to replicated storage so client and server can read it. 
-
 
 
 ### HACER BOTS
@@ -516,6 +516,9 @@ MessagingService:PublishAsync(Config.MATCH_FOUND_TOPIC, {
 	})
   from the lobby place to start the bots, how could we recive that message and fill the place with the needed bots through MessagingService api?
 ## Once in lobby
+
+### quests
+We got a pool of quests at src/shared/Quests/QuestsData.luau we 
 
 #### Loby version
 We are using a quest handler version like the one from the shooter place. The deal is that shooter and lobby will syncronize through using the same datastore, but only the lobby will accept quests. It uses a pool of quests, they should be sorted by weekly and daily, we can store the last connection of the player and check if a day have passed to aceppt the 3 new random quest from the pool, the same for weekly and we can accept them. Follow the same quest pattern to align to the new quests shape and create new ones for daily and weekly by adding more quests to src/shared/Quests/QuestsData.luau.allQuests

@@ -24,6 +24,16 @@ function AttackDistanceAbility.new(config)
 	-- when AttckInvoker routes a client-driven NPC shot here.
 	self.player = getCharacterActor(self.character)
 
+	-- Seed the authoritative magazine on the Tool. The attribute (not
+	-- weapon_stats, which every ability holds a private clone of) is the shared
+	-- ammo store: the server writes it, it replicates to the client for free
+	-- (RangeAttackClient dry-fire gate + the AmmoCounter UI both read it).
+	-- Seeded here, not per strategy, so every gun gets it data-driven. nil-check
+	-- so a respawned strategy on the same Tool keeps the partial magazine.
+	if self._tool and self._tool:GetAttribute(Constants.AMMO_ATTRIBUTE) == nil then
+		self._tool:SetAttribute(Constants.AMMO_ATTRIBUTE, self.weapon_stats.magazineSize)
+	end
+
 	return self
 end
 
@@ -79,6 +89,21 @@ function AttackDistanceAbility.Execute(
 	if self:GetCD() then
 		return
 	end
+
+	-- Ammo gate (authoritative). The client early-returns on empty too, but a
+	-- hacked client firing the Swing remote with an empty/reloading magazine
+	-- must land here and do nothing.
+	local tool = self._tool
+	if tool then
+		if tool:GetAttribute(Constants.RELOADING_ATTRIBUTE) then
+			return
+		end
+		local ammo = tool:GetAttribute(Constants.AMMO_ATTRIBUTE)
+		if ammo ~= nil and ammo <= 0 then
+			return
+		end
+	end
+
 	-- start attack
 	self:StartCD()
 
@@ -96,11 +121,16 @@ function AttackDistanceAbility.Execute(
 	local range = self.weapon_stats.range
 	local rayRadius = self.weapon_stats.rayRadius
 
-	-- Subtract ammo
-	--TODO: create an ammo system, it initialize with self.weapon_stats._ammo and RangeAttack (server) set this attribute and discount it, the client reads it after every shot, and connects a signal to this attribute and automatic reload the weapon when the gun is empty
-
-	local ammo = self.weapon_stats._ammo
-	self._tool:SetAttribute(Constants.AMMO_ATTRIBUTE, ammo - 1)
+	-- Subtract ammo from the live attribute (NOT weapon_stats._ammo, which is a
+	-- static config value — reading it here would pin the count at magazine-1
+	-- forever). Decremented only after the shot validated, so a rejected shot
+	-- costs nothing.
+	if tool then
+		local ammo = tool:GetAttribute(Constants.AMMO_ATTRIBUTE)
+		if ammo ~= nil then
+			tool:SetAttribute(Constants.AMMO_ATTRIBUTE, math.max(ammo - 1, 0))
+		end
+	end
 
 	-- The timestamp that was passed by the client also serves as the seed for the blaster's random spread.
 	-- This allows us to recalculate the spread accurately on the server relative to the look direction, rather than simply

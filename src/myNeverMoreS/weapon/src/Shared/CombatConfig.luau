@@ -517,6 +517,21 @@ do
 		},
 	}
 
+	-- Reload (R): refills the magazine after `reloadTime`. Dispatched by the
+	-- generic ReloadAbility / ReloadAbilityClient pair; the Tool's `_ammo` /
+	-- `_reloading` attributes are the only contract with the m1 shot, so the
+	-- two abilities never reference each other. `cooldown` matches
+	-- `reloadTime` so Execute can't be spammed while a reload is in flight.
+	local reload = {
+		config = {
+			keyCode = Constanst.KEYBOARD_RELOAD_KEY_CODE,
+			animNames = {},
+			type = "Reload",
+			cooldown = ak_stats.reloadTime,
+			weapon_stats = table.clone(ak_stats),
+		},
+	}
+
 	local gun: sharedWeaponTypes.MeleeSpec = {
 		weapon_name = "gun",
 		weapon_stats = table.clone(ak_stats),
@@ -527,6 +542,7 @@ do
 		skills = {
 			[SLideKey.Name] = Slide,
 			[RunKey.Name] = Run,
+			[Constanst.KEYBOARD_RELOAD_KEY_CODE.Name] = reload,
 		},
 
 		walk_speed_normal = 14,
@@ -600,6 +616,22 @@ do
 
 	ak_47.attacks = {
 		[Enum.UserInputType.MouseButton1.Name] = shot_m1,
+	}
+	-- table.clone(info["gun"]) is shallow: without this reassignment the ak-47
+	-- would share the gun's skills table — and its 10-round / 1s reload.
+	local ak_reload = {
+		config = {
+			keyCode = Constanst.KEYBOARD_RELOAD_KEY_CODE,
+			animNames = {},
+			type = "Reload",
+			cooldown = ak_47.weapon_stats.reloadTime,
+			weapon_stats = table.clone(ak_47.weapon_stats),
+		},
+	}
+	ak_47.skills = {
+		[SLideKey.Name] = Slide,
+		[RunKey.Name] = Run,
+		[Constanst.KEYBOARD_RELOAD_KEY_CODE.Name] = ak_reload,
 	}
 	ak_47.gripC0 = CFrame.identity
 	ak_47.gripC1 = CFrame.new(0.374, -0.7, 1.6) * CFrame.Angles(math.rad(90), -0, 0) -- TODO: tune for AK-47 geometry

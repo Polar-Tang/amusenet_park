@@ -18,8 +18,10 @@ local BinderProvider = serviceBag:GetService(_G.BinderProvider)
 local WeaponBinder = BinderProvider:Get("Armed")
 local CombatMediator = {}
 
-function CombatMediator.PlayerAdded(player: Player)
-	local char = player.Character or player.CharacterAdded:Wait()
+-- Combat attributes + peephole part tagging for ONE character Model.
+-- Called from ServiceRoot's per-character setup, so it runs again on every
+-- respawn (attributes/tags die with the old Model).
+function CombatMediator.CharacterAdded(char: Model)
 	char:SetAttribute("Combo", 1)
 	char:SetAttribute("Stunned", false)
 	char:SetAttribute("Swing", false)

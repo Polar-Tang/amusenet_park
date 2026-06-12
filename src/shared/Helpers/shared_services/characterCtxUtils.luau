@@ -3,6 +3,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local WeaponsAnims = require(ReplicatedStorage.Shared.Animations.WeaponsAnims)
 
+local DEFAULT_WEAPON = "fist"
+
 local module = {}
 
 function module.createCharNameIns(char: Model, char_name: string)
@@ -95,8 +97,33 @@ function module:UnequipCharWeapon(char, binder)
 	char:SetAttribute("char_name", nil)
 end
 
+-- Installs the default (fist) strategy when the character holds no Tool.
+-- Called at spawn (a bare character never fires ChildAdded/Equipment) and
+-- as the unequip fallback, so an alive character is never strategy-less.
+-- Guards: a Tool present means a hot swap is installing the real weapon,
+-- and a dead character must stay unarmed (respawn re-runs the spawn path).
+function module:EquipDefaultWeapon(char: Model)
+	if not char.Parent then
+		return
+	end
+	if char:FindFirstChildOfClass("Tool") then
+		return
+	end
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return
+	end
+	self:InitChar(char, DEFAULT_WEAPON)
+end
+
 function module:UnequipChar(char)
 	self:UnequipCharWeapon(char)
+	-- Deferred so a hot swap (Tool A removed -> Tool B added in the same
+	-- frame) sees B already parented and skips the fist detour; the real
+	-- equip then lands through the normal ChildAdded/Equipment path.
+	task.defer(function()
+		self:EquipDefaultWeapon(char)
+	end)
 end
 
 function module:GetHumanoid()

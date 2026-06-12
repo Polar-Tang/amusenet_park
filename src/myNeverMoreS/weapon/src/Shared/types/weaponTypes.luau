@@ -433,6 +433,24 @@ export type MovementAbilitySpec = {
     reset_attributes: ((ctx: BaseAbility) -> ())?,
 }
 
+--?? RELOAD ABILITY ??||
+
+--[=[
+	Generic reload ability (`type = "Reload"`), one shared shape for the
+	server refill (ReloadAbility) and the client request gate
+	(ReloadAbilityClient). State lives on the Tool's `_ammo` / `_reloading`
+	attributes, never on the instance, so both sides stay stateless.
+]=]
+export type ReloadAbility = BaseAbility & {
+	_tool: Tool?,
+	_keyCode: EnumItem?,
+	weapon_stats: WeaponStatsRange,
+	player: Player?,
+
+	new: (constructor: BaseAbilityConstructor) -> ReloadAbility,
+	Execute: (self: ReloadAbility, params: any?) -> (),
+}
+
 export type MovementAbility = BaseAbility & {
     player: Player,
     _lastAttackID: number,
