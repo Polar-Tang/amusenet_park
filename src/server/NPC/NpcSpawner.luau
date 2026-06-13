@@ -112,6 +112,12 @@ function NpcSpawner.SpawnOne(templates: { Model }, goals: { BasePart }, teamId: 
 	local goal = goals[random:NextInteger(1, #goals)]
 
 	local npc = template:Clone()
+	-- Clone() copies CollectionService tags: if a template is authored tagged
+	-- in Studio, the clone fires the NPC binder while still parented to nil —
+	-- election runs (and SetNetworkOwner throws "not a descendant of Workspace")
+	-- before the rig reaches the world. Strip it so the tag-last add below is
+	-- the real lifecycle signal, with the rig positioned and parented.
+	CollectionService:RemoveTag(npc, Constants.NPC_TAG)
 	unanchor(npc)
 	npc:PivotTo(CFrame.new(spawnPositionFor(goal)))
 	if teamId then

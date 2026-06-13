@@ -34,9 +34,14 @@ function CombatMediator.CharacterAdded(char: Model)
 
 	-- Tag every body part so the grenade aimer raycasts can exclude all players in
 	-- one CollectionService:GetTagged call instead of looping players each frame.
+	-- NonStatic marks the part as a moving combatant: the server-side shot
+	-- validation (RangeAttack staticOnly cast) excludes everything NonStatic so
+	-- its occlusion ray only ever finds real walls, never a latency-displaced
+	-- character standing between the shooter and the claimed target.
 	local function tagIfPart(descendant: Instance)
 		if descendant:IsA("BasePart") then
 			CollectionService:AddTag(descendant, Constants.peepholeExclude)
+			CollectionService:AddTag(descendant, Constants.NON_STATIC_TAG)
 		end
 	end
 	for _, descendant in char:GetDescendants() do

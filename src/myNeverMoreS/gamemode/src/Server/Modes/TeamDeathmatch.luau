@@ -5,12 +5,21 @@
 	the timer/score-cap win checks and replicates ScoreState — this class only
 	maps events to `deps.addScore` and keeps both teams populated:
 
-	  * players are balance-assigned onto the smaller team (idempotent —
-	    onPlayerAdded fires from both the match-start sweep and PlayerAdded);
-	  * bots spawn alternating across teams; each rig carries its team in the
-	    replicated `GameTeam` attribute (set by NpcSpawner pre-tag) AND on its
+	  * every assignment (players and bots) goes to the team with the smallest
+	    TOTAL head count — real players plus living bots — so a 1-player,
+	    4-bot match comes out 1+2 vs 0+3, not 1+2 vs 2 (idempotent for
+	    players: onPlayerAdded fires from both the match-start sweep and
+	    PlayerAdded);
+	  * pre-placed `NPC`-tagged rigs already in the map are adopted into the
+	    match at Start (GameTeam attribute + registration), before payload
+	    bots spawn, so the bots balance around them; an adopted rig that dies
+	    respawns as an `NPC_models` template, and Stop despawns adopted rigs
+	    along with mode bots;
+	  * each registered rig carries its team in the replicated `GameTeam`
+	    attribute (NpcSpawner pre-tag, or the adoption sweep) AND on its
 	    server-side fake actor, so the whole hit pipeline (which only reads
-	    Player-shaped `.Team`/`.Neutral`) sees the team without branching;
+	    Player-shaped `.Team`/`.Neutral`) sees the team without branching,
+	    plus a team-colored Highlight so players can read bot allegiance;
 	  * dead bots are replaced on the same team after NPC_RESPAWN_DELAY, so a
 	    bot match doesn't decay to empty teams.
 ]=]
@@ -19,6 +28,7 @@ local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Teams = game:GetService("Teams")
+local Workspace = game:GetService("Workspace")
 
 local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
 local getCharacterActor = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getCharacterActor)
@@ -41,18 +51,33 @@ function TeamDeathmatch.new(config: gameModeTypes.ModeConfig)
 	return self
 end
 
--- The mode team with the fewest players right now (Team instances were
--- created from config.teams by GameModeService before Start).
-function TeamDeathmatch._smallerTeam(self): Team?
-	local best: Team? = nil
-	local bestCount = math.huge
+-- Total head count per team id: real players (Team instances were created
+-- from config.teams by GameModeService before Start) plus registered bots.
+-- _npcTeams keeps a dead bot's entry until its same-team replacement spawns,
+-- so the totals stay stable across the respawn delay.
+function TeamDeathmatch._teamTotals(self): { [gameModeTypes.TeamId]: number }
+	local totals = {}
 	for _, spec in self.config.teams :: { gameModeTypes.TeamSpec } do
 		local team = Teams:FindFirstChild(spec.id) :: Team?
-		if team then
-			local count = #team:GetPlayers()
-			if count < bestCount then
-				best, bestCount = team, count
-			end
+		totals[spec.id] = team and #team:GetPlayers() or 0
+	end
+	for _, teamId in pairs(self._npcTeams) do
+		if totals[teamId] then
+			totals[teamId] += 1
+		end
+	end
+	return totals
+end
+
+-- Smallest-total team id; config spec order breaks ties so the first team
+-- fills first on an even field.
+function TeamDeathmatch._smallestTeamId(self, totals: { [gameModeTypes.TeamId]: number }): gameModeTypes.TeamId?
+	local best: gameModeTypes.TeamId? = nil
+	local bestCount = math.huge
+	for _, spec in self.config.teams :: { gameModeTypes.TeamSpec } do
+		local count = totals[spec.id]
+		if count and count < bestCount then
+			best, bestCount = spec.id, count
 		end
 	end
 	return best
@@ -68,7 +93,8 @@ function TeamDeathmatch.onPlayerAdded(self, player: Player)
 		end
 	end
 
-	local team = self:_smallerTeam()
+	local teamId = self:_smallestTeamId(self:_teamTotals())
+	local team = teamId and Teams:FindFirstChild(teamId) :: Team?
 	if team then
 		player.Team = team
 		player.Neutral = false
@@ -76,17 +102,31 @@ function TeamDeathmatch.onPlayerAdded(self, player: Player)
 end
 
 --[=[
-	Adopts a spawned rig into the match: marks its server-side fake actor with
-	the team (the rig's replicated `GameTeam` attribute was set by NpcSpawner
-	pre-tag) and arms the same-team respawn on death. `Humanoid.Died` is used
-	instead of the kill signal because it also covers deaths EffectService
-	never sees (falls, despawn damage).
+	Adopts a rig into the match: marks its server-side fake actor with the
+	team (the rig's replicated `GameTeam` attribute was already set — by
+	NpcSpawner pre-tag for payload bots, by the Start sweep for pre-placed
+	rigs), outlines it in the team color, and arms the same-team respawn on
+	death. `Humanoid.Died` is used instead of the kill signal because it also
+	covers deaths EffectService never sees (falls, despawn damage).
 ]=]
 function TeamDeathmatch._registerNpc(self, rig: Model, teamId: gameModeTypes.TeamId)
 	local actor = getCharacterActor(rig) :: any
 	actor.Team = Teams:FindFirstChild(teamId)
 	actor.Neutral = false
 	self._npcTeams[rig] = teamId
+
+	-- Friend-or-foe readability: outline the rig in its team color (players
+	-- have the playerlist/team color, bots have nothing else visible).
+	for _, spec in self.config.teams :: { gameModeTypes.TeamSpec } do
+		if spec.id == teamId then
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "TeamHighlight"
+			highlight.FillTransparency = 1
+			highlight.OutlineColor = spec.color.Color
+			highlight.Parent = rig
+			break
+		end
+	end
 
 	local humanoid = rig:FindFirstChildOfClass("Humanoid")
 	if not humanoid then
@@ -121,19 +161,47 @@ function TeamDeathmatch._respawnNpc(self, deadRig: Model, teamId: gameModeTypes.
 end
 
 function TeamDeathmatch.Start(self, payload: gameModeTypes.MatchPayload)
+	-- Adopt pre-placed rigs first: NPC-tagged map rigs that no spawner owns
+	-- (no GameTeam attribute) join the smallest team, so the payload bots
+	-- below balance around them. From here on they are mode-owned like any
+	-- spawned bot: same-team template respawn on death, despawned by Stop.
+	for _, rig in CollectionService:GetTagged(Constants.NPC_TAG) do
+		if
+			rig:IsA("Model")
+			and rig:IsDescendantOf(Workspace)
+			and not self._npcTeams[rig]
+			and rig:GetAttribute(GameModeConstants.TEAM_ATTRIBUTE) == nil
+		then
+			local teamId = self:_smallestTeamId(self:_teamTotals())
+			if teamId then
+				rig:SetAttribute(GameModeConstants.TEAM_ATTRIBUTE, teamId)
+				self:_registerNpc(rig, teamId)
+			end
+		end
+	end
+
 	local botCount = payload.botCount or 0
 	if botCount <= 0 then
 		return
 	end
 
-	-- Alternate across teams so both sides stay even regardless of count.
+	-- Each bot goes to the smallest TOTAL (players + bots assigned so far),
+	-- so the sides come out even around however the humans landed.
 	local teamIds = {}
-	local specs = self.config.teams :: { gameModeTypes.TeamSpec }
+	local totals = self:_teamTotals()
 	for index = 1, botCount do
-		teamIds[index] = specs[((index - 1) % #specs) + 1].id
+		local teamId = self:_smallestTeamId(totals)
+		if not teamId then
+			break
+		end
+		teamIds[index] = teamId
+		totals[teamId] += 1
+	end
+	if #teamIds == 0 then
+		return
 	end
 
-	local rigs = NpcSpawner.Spawn(botCount, teamIds)
+	local rigs = NpcSpawner.Spawn(#teamIds, teamIds)
 	for index, rig in rigs do
 		self:_registerNpc(rig, teamIds[index])
 	end

@@ -50,14 +50,19 @@ end)
 local QuestHandler = require(SSS.Server.Quests.QuestHandler)
 ---------- GAME MODE ----------
 local GameModeService = require(RS.Nevermore.Custom.gamemode.src.Server.GameModeService)
+-- A ServiceBag service, NOT a free-standing Script: its require chain reaches
+-- loader-dependent Quenty modules, which only load after bootstrapGame above.
+local MatchListener = require(SSS.Server.NPC.MatchListener)
 
 ----- ------------------------ START SERVICEBAG -----------------------------
 serviceBag:GetService(AttacksBinders)
 serviceBag:GetService(QuestHandler)
 serviceBag:GetService(GameModeService)
+serviceBag:GetService(MatchListener)
 serviceBag:Init()
 
 serviceBag:Start()
+print("starting service bag")
 
 _G.FistBag = nil
 _G.ServiceBag = serviceBag
@@ -85,6 +90,10 @@ AnimBinder:GetClassAddedSignal():Connect(function(binder)
 end)
 
 local NPCBinderServer = BinderProviderStarted:Get("NPC")
+-- Start (brain election) must run at bind time, not from PlayerAdded: bots
+-- spawned mid-match (GameModeService) bind long after every player joined,
+-- so a PlayerAdded-driven start would never reach them. Election with zero
+-- players is a safe no-op that re-elects from its own PlayerAdded hook.
 local function setupNpc(npcBinder)
 	task.spawn(function()
 		npcBinder:Init()
@@ -199,7 +208,7 @@ Players.PlayerAdded:Connect(function(player)
 	QuestService:InitPlayer(player, player, savedQuests)
 	local playerQuests = QuestHandler:GetHandler(player)
 	for questName, questData in pairs(playerQuests:GetSaveData()) do
-		ReplicatedStorage.Shared.RemoteEvents.QuestProgressRemote:FireClient(player, questData)
+		ReplicatedStorage.Shared.RemoteEvents.QuestProgress:FireClient(player, questData)
 	end
 end)
 -- Respawn gate: the client's DeathScreen fires this when the player clicks
@@ -233,9 +242,12 @@ Players.PlayerRemoving:Connect(function(player)
 			warn("[ServiceRoot] - Failed to save quests for player ", player.UserId, saveErr)
 		end
 	end
-	
+
 	for questName, questProgress in pairs(playerQuests:GetSaveData().quests) do
-		game.ReplicatedStorage.Shared.RemoteEvents.clientDebugConsole:FireClient(player, "Quest: " .. questName .. ", " .. questProgress)
+		game.ReplicatedStorage.Shared.RemoteEvents.clientDebugConsole:FireClient(
+			player,
+			"Quest: " .. questName .. ", " .. questProgress
+		)
 	end
 
 	QuestService:RemovePlayer(player)

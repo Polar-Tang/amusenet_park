@@ -96,7 +96,6 @@ end
 function GoalController.CalculatePath(self: GoalController, goalPosition: Vector3)
 	return Promise.spawn(function(resolve, reject)
 		local path = PathfindingService:CreatePath()
-		print(path, "path ")
 
 		local ok, err = pcall(function()
 			path:ComputeAsync(self.hrp.Position, goalPosition)

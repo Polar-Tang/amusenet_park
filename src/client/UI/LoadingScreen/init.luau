@@ -320,7 +320,6 @@ function handler.Start(self: Handler)
 			ContentProvider:PreloadAsync(instances, function(_contentId: string, _status)
 				loaded += 1
 				self.assetLoaded = math.min(loaded, self.assetTotal)
-				print("_contentId ", _contentId)
 				self:_recalculateProgress()
 			end)
 		end)

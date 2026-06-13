@@ -14,51 +14,42 @@ export type RayResult = {
 	instance: Instance?,
 	limb: BasePart?,
 }
-
-local function castRays(
+export type castRayParams = {
 	player: Player,
-	position: Vector3,
+	origin: Vector3,
 	directions: { Vector3 },
 	radius: number,
 	staticOnly: boolean?
+}
+local function castRays(
+	castRayParams: castRayParams
 ): { RayResult }
 	local exclude = CollectionService:GetTagged(Constants.RAY_EXCLUDE_TAG)
-
-	if staticOnly then
+	if castRayParams.staticOnly then
 		local nonStatic = CollectionService:GetTagged(Constants.NON_STATIC_TAG)
+		
 		-- Append nonStatic to exclude
 		table.move(nonStatic, 1, #nonStatic, #exclude + 1, exclude)
 	end
 
 	-- Always include the player's character in the exclude list
-	if player.Character then
-		table.insert(exclude, player.Character)
-	end
-
-	local collisionGroup = nil
-
-	-- If the player is on a team, use that team's collision group to ensure the ray passes through
-	-- characters and forcefields on that team.
-	if player.Team and not player.Neutral then
-		collisionGroup = player.Team.Name
+	if castRayParams.player.Character then
+		table.insert(exclude, castRayParams.player.Character)
 	end
 
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.IgnoreWater = true
 	params.FilterDescendantsInstances = exclude
-	if collisionGroup then
-		params.CollisionGroup = collisionGroup
-	end
 
 	local rayResults = {}
 
-	for _, direction in directions do
+	for _, direction in castRayParams.directions do
 		-- In order to provide a simple form of bullet magnetism, we use spherecasts with a small radius instead of raycasts.
 		-- This allows closely grazing shots to register as hits, making blasters feel a bit more accurate and improving the 'game feel'.
-		local raycastResult = Workspace:Spherecast(position, radius, direction, params)
+		local raycastResult = Workspace:Spherecast(castRayParams.origin, castRayParams.radius, direction, params)
 		local rayResult: RayResult = {
-			position = position + direction,
+			position = castRayParams.origin + direction,
 			normal = direction.Unit,
 		}
 
@@ -70,7 +61,7 @@ local function castRays(
 			hitShitData:init()
 			local humanoid = hitShitData:findParentHumanoid()
 			local limb = hitShitData:findLimb()
-			if humanoid and canPlayerDamageHumanoid(player, humanoid) then
+			if humanoid and canPlayerDamageHumanoid(castRayParams.player, humanoid) then
 				rayResult.taggedHumanoid = humanoid
 				rayResult.limb = limb
 			end

@@ -69,11 +69,14 @@ function NPCServer.new(char: Model, serviceBag: any, binderProvider: any): NPCSe
 		char:SetAttribute(attribute, value)
 	end
 
-	-- Same body-part tagging players get: keeps the grenade aimer raycasts
-	-- treating NPC rigs like characters.
+	-- Same body-part tagging players get (CombatMediator.CharacterAdded):
+	-- peepholeExclude for the grenade aimer, NonStatic so the server shot
+	-- validation's static-only occlusion cast passes through the rig instead
+	-- of treating it as a wall.
 	local function tagIfPart(descendant: Instance)
 		if descendant:IsA("BasePart") then
 			CollectionService:AddTag(descendant, Constants.peepholeExclude)
+			CollectionService:AddTag(descendant, Constants.NON_STATIC_TAG)
 		end
 	end
 	for _, descendant in char:GetDescendants() do
@@ -119,7 +122,7 @@ function NPCServer.Init(self: NPCServer)
 			animHandler:Init(self.char:WaitForChild("Humanoid"))
 		end
 		characterCtxUtils:InitCharAnim(self.char, toolName, animHandler)
-		
+
 		local weaponBinder = self._binderProvider:Get("Armed")
 		self._maid:GivePromise(weaponBinder:Promise(self.char)):Then(function(weaponContext)
 			characterCtxUtils:InitCharWeapon(self.char, toolName, weaponContext)
@@ -152,23 +155,32 @@ end
 -- fires on the client and it stays put). `player == nil` reverts to server.
 function NPCServer._setNetworkOwner(self: NPCServer, player: Player?)
 	local hrp = self.char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not hrp or hrp.Anchored then
+	-- The API only works on a part that is in Workspace and unanchored. A rig
+	-- bound while still parented to nil/ServerStorage (e.g. a tag carried over
+	-- by Clone) would throw "not a descendant of Workspace" — bail quietly, the
+	-- next election (after the rig is in the world) sets ownership for real.
+	if not hrp or hrp.Anchored or not hrp:IsDescendantOf(workspace) then
 		return
 	end
-	-- Errors if any assembly part is anchored or the rig is mid-despawn.
-	pcall(function()
+	-- Still pcall (an assembly part can be anchored, or the rig mid-despawn),
+	-- but surface the reason instead of swallowing it — a silent failure here
+	-- leaves the brain client unable to move the rig.
+	local ok, err = pcall(function()
 		hrp:SetNetworkOwner(player)
 	end)
+	if not ok then
+		warn(`[NPCServer] SetNetworkOwner failed for {self.char:GetFullName()}: {err}`)
+	end
 end
 
 -- Keeps the current owner when still valid; otherwise picks a random player
 -- (random spreads the brains of many NPCs across the connected clients).
 function NPCServer._electBrainOwner(self: NPCServer, leaving: Player?)
 	local currentOwner = self.char:GetAttribute(NpcConstants.BRAIN_OWNER_ATTRIBUTE)
-	print("currentOwner ", currentOwner)
+	local players = Players:GetPlayers()
 
 	local candidates = {}
-	for _, player in Players:GetPlayers() do
+	for _, player in players do
 		if player ~= leaving then
 			if player.UserId == currentOwner then
 				return

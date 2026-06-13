@@ -15,11 +15,13 @@ local function validateTag(
 ): boolean
 	-- Make sure the player is actually allowed to damage this humanoid. No team killing!
 	if not canPlayerDamageHumanoid(player, taggedHumanoid) then
+		print("[validateTag] rejected: gate (same team or dead target)", taggedHumanoid.Parent)
 		return false
 	end
 
 	local character = taggedHumanoid:FindFirstAncestorOfClass("Model")
 	if not character then
+		print("[validateTag] rejected: humanoid has no character Model")
 		return false
 	end
 
@@ -31,6 +33,7 @@ local function validateTag(
 	-- If the server's version of the ray hits static geometry before the player, then we know the shot
 	-- the client reported could not be made.
 	if rayDistance < characterDistance - WALL_DISTANCE_BUFFER_CONSTANT then
+		print("[validateTag] rejected: wall (ray hit at", rayDistance, "vs character at", characterDistance, ")")
 		return false
 	end
 
@@ -58,6 +61,7 @@ local function validateTag(
 	-- conceivably be aiming at.
 	local angle = characterOffset:Angle(direction)
 	if angle > maxAngle then
+		print("[validateTag] rejected: aim angle", math.deg(angle), "exceeds max", math.deg(maxAngle))
 		return false
 	end
 

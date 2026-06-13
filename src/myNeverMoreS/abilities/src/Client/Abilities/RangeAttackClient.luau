@@ -474,8 +474,7 @@ function AttackDistanceAbility._shot(self: AttackDistanceAbilityType)
 
 	-- getCharacterActor returns the real Player when there is one; for NPCs it
 	-- is the Player-shaped stand-in castRays/canPlayerDamageHumanoid accept.
-	local rayResults = castRays(getCharacterActor(self.character), origin.Position, rayDirections, rayRadius)
-
+	local rayResults = castRays({player = getCharacterActor(self.character), origin = origin.Position, directions= rayDirections, radius = rayRadius})
 	-- Rather than passing the entire table of rayResults to the server, we'll pass the shot origin and a list of tagged humanoids.
 	-- The server will then recalculate the ray directions from the origin and validate the tagged humanoids.
 	-- Strings are used for the indices since non-contiguous arrays do not get passed over the network correctly.

@@ -144,6 +144,7 @@ Why this is the *right* model for MMO scale, not a perf/replication compromise:
 - **Don't `setmetatable(self, nil)` in `Destroy` when async callbacks can still land**: `MovementController:Destroy` rejects the in-flight move promise, whose `:Catch` calls `self:Stop()` possibly a tick later — stripping the metatable turns that into a method-not-found error.
 - **Maid layering**: binder maid owns controllers; a controller that runs multi-frame work (MovementController) needs its *own* private maids (move scratch + per-waypoint race) cleaned per-operation. Never clean a binder-level maid from inside an operation — it tears down sibling controllers mid-move.
 - **`Humanoid:MoveTo` has an 8s built-in timeout** — far too slow to notice a stuck combat NPC. Race `MoveToFinished` against your own `task.delay` (1s here) and recover (ballistic jump to the waypoint with `v0 = (p1 - p0 - 0.5*g*T²)/T`).
+- **Free-standing `.server.luau` Scripts must not require (even transitively) any Quenty module**: Quenty modules start with `require(script.Parent.loader)`, and those `loader` links only exist after ServiceRoot's `bootstrapGame` — sibling Scripts schedule in arbitrary order, so the require races it (`loader is not a valid member` at boot, e.g. MatchListener → GameModeService → EffectService → Ragdoll). ServiceRoot is the **only** server entry point: new top-level server logic becomes a ServiceBag service it registers (MatchListener is the precedent).
 
 ### Key files
 

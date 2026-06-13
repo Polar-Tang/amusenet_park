@@ -102,7 +102,7 @@ function NPCClient.Init(self: NPCClient)
 		-- hits an unregistered name and errors in _initDescriptior.
 		animHandler:AddAnimations(OtherAnims)
 		characterCtxUtils:InitCharAnim(self.char, toolName, animHandler)
-		
+
 		local weaponBinder = BinderProvider:Get("Armed")
 		self._maid:GivePromise(weaponBinder:Promise(self.char)):Then(function(weaponContext)
 			characterCtxUtils:InitCharWeapon(self.char, toolName, weaponContext)
@@ -115,12 +115,10 @@ end
 	client (player left, NPC streamed, ...).
 ]=]
 function NPCClient.Start(self: NPCClient)
-	self._maid:GiveTask(
-		self.char:GetAttributeChangedSignal(NpcConstants.BRAIN_OWNER_ATTRIBUTE):Connect(function()
-			self:_updateBrainOwnership()
-		end)
-	)
-
+	self._maid:GiveTask(self.char:GetAttributeChangedSignal(NpcConstants.BRAIN_OWNER_ATTRIBUTE):Connect(function()
+		self:_updateBrainOwnership()
+	end))
+	
 	-- A dead rig should not patrol, attack, or be re-elected into a brain. Tear
 	-- the machine down on death and latch `_isDead` so a later ownership
 	-- re-election can't boot it back up. The Died connection lives on the binder

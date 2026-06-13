@@ -11,6 +11,7 @@ local castRays = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared
 local getCharacterActor = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getCharacterActor)
 local getRayDirections = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getRayDirections)
 local weaponTypes = require(ReplicatedStorage.Nevermore.Custom.weapon.src.Server.types.weaponTypes)
+local testPart = require(ReplicatedStorage.Shared.test.testPart)
 
 local AttackDistanceAbility = setmetatable({}, BaseAbility)
 AttackDistanceAbility.__index = AttackDistanceAbility
@@ -140,8 +141,17 @@ function AttackDistanceAbility.Execute(
 	for index, direction in rayDirections do
 		rayDirections[index] = direction * range
 	end
-	-- Raycast against static geometry only
-	local rayResults = castRays(self.player, origin.Position, rayDirections, rayRadius, true)
+	-- Raycast against static geometry only: every character part is tagged
+	-- NonStatic, so this cast finds WALLS for validateTag's occlusion check —
+	-- re-hitting the moving target is the client's job (latency would make the
+	-- server miss), the claim is then validated by distance + angle.
+	local rayResults = castRays({
+		player = self.player,
+		origin = origin.Position,
+		directions = rayDirections,
+		radius = rayRadius,
+		staticOnly = true,
+	})
 
 	-- Validate hits
 	for indexString, tagged in params.tagged do

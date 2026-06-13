@@ -53,7 +53,7 @@ local function hasLineOfSight(player: Player, origin: Vector3, target: Model, ro
 		return false
 	end
 
-	local rayResults = castRays(player, origin, directions, Constants.AIM_ASSIST_RAY_RADIUS)
+	local rayResults = castRays({player = player, origin = origin, directions = directions, radius= Constants.AIM_ASSIST_RAY_RADIUS})
 	for _, rayResult in rayResults do
 		if rayResult.taggedHumanoid then
 			return true
