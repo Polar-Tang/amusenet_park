@@ -31,11 +31,16 @@ local Binder = Nevermore("Binder")
 local WeaponBinder = Nevermore("Weapon")
 local AnimationHandler = Nevermore("AnimationHandler")
 local NPCServer = Nevermore("NPCServer")
+-- CTF flag binder: a custom module (not a Nevermore package), tagged per the
+-- shared constant so the CaptureTheFlag mode can look it up by the same name.
+local GameModeConstants = require(RS.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
+local Flag = require(RS.Nevermore.Custom.gamemode.src.Server.Binders.Flag)
 
 local Binders = {
 	["AnimationHandler"] = AnimationHandler,
 	["Armed"] = WeaponBinder,
 	["NPC"] = NPCServer,
+	[GameModeConstants.CTF_FLAG_TAG] = Flag,
 }
 ---------- USE BINDER PORVIDER ----------
 local BinderProvider = Nevermore("BinderProvider")

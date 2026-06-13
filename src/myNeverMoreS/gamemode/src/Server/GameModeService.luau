@@ -28,6 +28,8 @@ local EffectService = require(ReplicatedStorage.Nevermore.Custom.abilities.src.S
 local GameModeConfig = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConfig)
 local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
 local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.gameModeTypes)
+local CaptureTheFlag = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.CaptureTheFlag)
+local KingOfTheHill = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.KingOfTheHill)
 local TeamDeathmatch = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.TeamDeathmatch)
 
 local MatchStateRemote: RemoteEvent = ReplicatedStorage.Shared.RemoteEvents.MatchState
@@ -35,6 +37,8 @@ local MatchStateRemote: RemoteEvent = ReplicatedStorage.Shared.RemoteEvents.Matc
 -- Adding a mode = one entry here + one ModeConfig entry + the strategy file.
 local MODE_REGISTRY: { [string]: any } = {
 	tdm = TeamDeathmatch,
+	koth = KingOfTheHill,
+	ctf = CaptureTheFlag,
 }
 
 local GameModeService = {}

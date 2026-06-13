@@ -38,7 +38,7 @@ We are using a queu, if it doesn't find any player fills the missing players wit
 
 ### distintos modos
 Define an architecture for using the same source file and different game mods
-King of the Hill (koh)
+King of the Hill (koht)
 Capture the Flag (ctf)
 Last Man Standing (lms)
 Team Deathmatch (tdm)
@@ -59,8 +59,7 @@ estilizado como wonkeland
 [] recompensa para los jugadores premium 
 [] AMO ui, echa con imágenes de ia
 [] Radar (usando un "pie slice" una fracción del perimetro del círculo rotada inteligentemente)
-### Ending game and win condition
-We need to account the players on played leave, if there are no players in the server we can simply finnish the game
+
 ### loby
 - misiones
 - shop
@@ -82,21 +81,33 @@ function Crosshair:render()
 ```
 ```
 So the sign design, it occupies most the screen and it shows different 'game modes' which are columns, every column is a component so we DRY and it takes description, title, image and button cb as props, the titles are the folowings
-King of the Hill (koh)
+King of the Hill (koht)
+I'm thinking to add another game mode, but i wonder about its game condition logic. For koht can we use node_modules/@quenty/adorneeboundingbox/src/Shared/AdorneeBoundingBox.lua module?
 Capture the Flag (ctf)
 Last Man Standing (lms)
 Team Deathmatch (tdm)
-The callbacks do fire the server with the game mode: koh, ctf, lms, tdm and call the close functionality, the button again shows the text match message
+The callbacks do fire the server with the game mode: koht, ctf, lms, tdm and call the close functionality, the button again shows the text match message
 Get creative with description and use placeholder as images
 #### Backend
 joinQueue(player: Player) of Queu manager needs to craft a payload for the reserved server
 The payload type goes like:
 export type MatchPayload = {
-	mode: string?, -- actually type is koh | ctf | lms | tdm 
+	mode: string?, -- actually type is koht | ctf | lms | tdm 
 	botCount: number?, -- the number used to seed the bots
 	matchId: string?, --
 }
 The other server is waiting for this shape
+
+### lms
+What make last man standing mode so different is that it doesn't use any team, so resolveTeam and similar function may have a fallback for this. Another this is that from every other mode we should place the weapons from serverStorage.weapons instead of using starter pack and lastManStanding doesn't do that.
+Check if this breaks Fist equip as default weapon because we still do want to use it
+
+###  para pensar
+Base mode has a win method, when its called it should teleport back to the server, how could we do that?
+
+### slide solution
+There's an error of
+'ReplicatedStorage.Nevermore.Custom.weapon.src.Shared.CombatConfig:234: attempt to call missing method 'ChangeChildren' of table ' after calling slide
 
 ### Performance refactorization
 In the casts ray process, we validate humanoid, FindFirstAncestorOfClass("Model"), we use findFirst child and another methods that injuries the performace, castRays, validate humanoid, canPlayerDamageHumanoid, hitPartData infor, everything should have a context, maybe they should be a class that do all of this methods once
