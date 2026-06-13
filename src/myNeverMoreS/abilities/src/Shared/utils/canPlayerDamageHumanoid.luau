@@ -9,28 +9,13 @@
 	and dummy rigs — so combat outside team modes is untouched.
 ]=]
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local resolveTeam = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.resolveTeam)
+local isDamageableByTeam = require(script.Parent.isDamageableByTeam)
 
 local function canPlayerDamageHumanoid(player: Player, taggedHumanoid: Humanoid): boolean
-	-- If the humanoid is already dead, no need to apply more damage
-	if not taggedHumanoid:IsA("Humanoid") or taggedHumanoid.Health <= 0 then
-		return false
-	end
-
-	local taggedCharacter = taggedHumanoid.Parent :: Model?
-	local attackerTeam = resolveTeam(player.Character, player)
-	local defenderTeam = resolveTeam(taggedCharacter, Players:GetPlayerFromCharacter(taggedCharacter))
-
-	-- Either side teamless (neutral player, dummy, pre-match) => allow damage
-	if not attackerTeam or not defenderTeam then
-		return true
-	end
-
-	-- Only allow damage across teams
-	return attackerTeam ~= defenderTeam
+	return isDamageableByTeam(resolveTeam(player.Character, player), taggedHumanoid)
 end
 
 return canPlayerDamageHumanoid

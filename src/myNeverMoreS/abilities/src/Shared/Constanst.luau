@@ -101,6 +101,14 @@ module.dashTime = 3
 module.dashDistance = 20
 module.slideInitialSpeed = 55
 
+-- Binder tags (CollectionService). The single source of truth for the tag →
+-- binder mapping both ServiceRoots register and for the AddTag calls that bind a
+-- character into the combat loop. Keep these in sync with the `Binders` table in
+-- src/server/ServiceRoot.server.luau and src/client/UI/ServiceRoot.client.luau.
+module.ARMED_TAG = "Armed" -- the weapon context binder (Weapon server / WeaponClient)
+module.ANIMATION_HANDLER_TAG = "AnimationHandler" -- the per-character AnimationHandler binder
+module.CD_TAG = "CD" -- Quenty Cooldown binder
+
 -- NPC
 -- Tag carried by every NPC character model; binds the NPC binders (client
 -- brain / server Armed mirroring) and marks the model as a valid client-driven

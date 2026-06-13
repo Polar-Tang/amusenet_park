@@ -1,10 +1,7 @@
 local CollectionService = game:GetService("CollectionService")
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local canPlayerDamageHumanoid =
-	require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.canPlayerDamageHumanoid)
-local castRays = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.castRays)
+local RayCaster = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.RayCaster)
 local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
 
 --[=[
@@ -26,9 +23,7 @@ local function collectCandidateCharacters(): { Model }
 	return CollectionService:GetTagged("Armed")
 end
 
-local function hasLineOfSight(player: Player, origin: Vector3, target: Model, rootPart: BasePart): boolean
-	
-
+local function hasLineOfSight(caster: RayCaster.RayCaster, origin: Vector3, target: Model): boolean
 	-- Line of sight is "can a thin line reach ANY part of the target". We aim one
 	-- thin ray straight at each of the target's body parts rather than a random
 	-- forward cone, because each earlier approach got it wrong in opposite ways:
@@ -53,7 +48,7 @@ local function hasLineOfSight(player: Player, origin: Vector3, target: Model, ro
 		return false
 	end
 
-	local rayResults = castRays({player = player, origin = origin, directions = directions, radius= Constants.AIM_ASSIST_RAY_RADIUS})
+	local rayResults = caster:Cast(origin, directions, Constants.AIM_ASSIST_RAY_RADIUS)
 	for _, rayResult in rayResults do
 		if rayResult.taggedHumanoid then
 			return true
@@ -73,6 +68,11 @@ local function findAimAssistTarget(
 	local cameraPosition = cameraCFrame.Position
 	local lookDirection = cameraCFrame.LookVector
 	local cosThreshold = math.cos(math.rad(fovDeg))
+
+	-- One caster for the whole scan: the attacker (player) and exclude list are
+	-- constant across every candidate, so resolving the attacker team + building
+	-- RaycastParams once (instead of once per candidate) is the aim-assist win.
+	local caster = RayCaster.new(player)
 
 	-- Anchor for the "behind the player's back" reject below. The hard lock is a
 	-- mask on the CAMERA, and a locked camera always points straight at its
@@ -138,7 +138,7 @@ local function findAimAssistTarget(
 			continue
 		end
 
-		if not hasLineOfSight(player, cameraPosition, character, rootPart) then
+		if not hasLineOfSight(caster, cameraPosition, character) then
 			if character.Name == "Target" then
 				print("hasLineOfSight")
 			end

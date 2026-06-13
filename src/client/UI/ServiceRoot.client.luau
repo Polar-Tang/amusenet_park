@@ -1,5 +1,6 @@
 --||Services||--
 local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local RS = game:GetService("ReplicatedStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -36,10 +37,12 @@ local WeaponClient = Nevermore("WeaponClient") -- THIS IS NEW
 local AnimationHandler = Nevermore("AnimationHandler")
 local NPCClient = Nevermore("NPCClient")
 
+local Constants = require(RS.Nevermore.Custom.abilities.src.Shared.Constanst)
+
 local Binders = {
-	["AnimationHandler"] = AnimationHandler,
-	["Armed"] = WeaponClient,
-	["NPC"] = NPCClient,
+	[Constants.ANIMATION_HANDLER_TAG] = AnimationHandler,
+	[Constants.ARMED_TAG] = WeaponClient,
+	[Constants.NPC_TAG] = NPCClient,
 }
 
 ---------- USE BINDER PORVIDER ----------
@@ -72,7 +75,10 @@ local FadeText = require(ReplicatedStorage.Shared.utils.FadeText)
 
 local player = Players.LocalPlayer
 
-local WeaponBinderStarted = BinderProviderInitialized:Get("Armed")
+local WeaponBinderStarted = BinderProviderInitialized:Get(Constants.ARMED_TAG)
+-- Registered in the Binders table above, so a nil here is a wiring bug (typo'd
+-- tag / missing registration), not a runtime state — fail loud, don't NPE later.
+assert(WeaponBinderStarted, `ServiceRoot: no binder registered for tag "{Constants.ARMED_TAG}"`)
 
 WeaponBinderStarted:GetClassAddedSignal():Connect(function(binder)
 	local character = binder.Char
@@ -84,7 +90,8 @@ WeaponBinderStarted:GetClassAddedSignal():Connect(function(binder)
 	end
 end)
 
-local AnimBinder = BinderProviderInitialized:Get("AnimationHandler")
+local AnimBinder = BinderProviderInitialized:Get(Constants.ANIMATION_HANDLER_TAG)
+assert(AnimBinder, `ServiceRoot: no binder registered for tag "{Constants.ANIMATION_HANDLER_TAG}"`)
 AnimBinder:GetClassAddedSignal():Connect(function(binder)
 	local character: Model = binder.Char
 	character:SetAttribute("binder-AnimationHandler-charged", true)
@@ -104,7 +111,8 @@ end)
 -- NPC brains: equip the rig's tool client-side and watch the brain-owner
 -- attribute (only the elected client runs the state machine). Registered
 -- BEFORE serviceBag:Start so pre-placed NPCs binding during Start are caught.
-local NPCBinder = BinderProviderInitialized:Get("NPC")
+local NPCBinder = BinderProviderInitialized:Get(Constants.NPC_TAG)
+assert(NPCBinder, `ServiceRoot: no binder registered for tag "{Constants.NPC_TAG}"`)
 NPCBinder:GetClassAddedSignal():Connect(function(npcBinder)
 	task.spawn(function()
 		npcBinder:Init()
@@ -237,3 +245,7 @@ end)
 -- 	print("recoild ", recoil)
 -- 	CameraRecoiler.recoil(recoil)
 -- end)
+
+ProximityPromptService.PromptShown:Connect(function(a0: ProximityPrompt, a1: Enum.ProximityPromptInputType)
+	print("Showed pronpt", a0)
+end)

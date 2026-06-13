@@ -1,7 +1,6 @@
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local EffectService = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.EffectService)
 local EffectTypes = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.EffectTypes)
 local roll_vfx = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.roll_vfx)
 -- Client-only grenade aimer (picks the touch or mouse peephole). Side-safe at
@@ -190,13 +189,16 @@ local SLIDE_MIN_SPEED = 10
 local MAX_FORCE = math.huge -- N  — cap so the constraint doesn't fight slopes infinitely
 
 local slide_reset = function(ctx)
-	-- Slide has naturally decelerated to rest — clean up
-	ctx._slideConstraint:Destroy()
-	ctx._slideConstraint = nil
-	ctx._slideConnection:Disconnect()
-	ctx._slideConnection = nil
 	ctx._isActive = false
 	ctx._animHandler:LoadAnimation(false, ctx._animName)
+	-- Slide has naturally decelerated to rest — clean up
+	if ctx._slideConstraint then 
+		ctx._slideConstraint:Destroy()
+		ctx._slideConstraint = nil
+		ctx._slideConnection:Disconnect()
+		ctx._slideConnection = nil
+	
+	end
 end
 local slide_effect = function(ctx, params)
 	-- ── Cancel path ──────────────────────────────────────────────────────────
@@ -231,18 +233,20 @@ local slide_effect = function(ctx, params)
 	--
 	local lv: LinearVelocity = Instance.new("LinearVelocity")
 
-	lv.Attachment0 = EffectService:ChangeChildren(
-		hrp,
-		"LV",
-		function(a0: BasePart | Model, a1: string, a2): Attachment | BasePart | Model
-			local att: Attachment = Instance.new("Attachment", hrp)
-			att.Axis = Vector3.new(-0, 0, -1)
-			att.SecondaryAxis = Vector3.new(0, 1, 0)
-			att.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(90), 0)
-			att.Name = "LV"
-			return att
-		end
-	)
+	-- Find-or-create the "LV" attachment on the HRP. This runs client-side
+	-- (slide is a client-only Movement ability), so it can't use the server
+	-- EffectService:ChangeChildren helper — that module returns {} on clients.
+	local a0: Attachment? = hrp:FindFirstChild("LV") :: Attachment?
+	if not a0 then
+		local att: Attachment = Instance.new("Attachment")
+		att.Axis = Vector3.new(-0, 0, -1)
+		att.SecondaryAxis = Vector3.new(0, 1, 0)
+		att.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(90), 0)
+		att.Name = "LV"
+		att.Parent = hrp
+		a0 = att
+	end
+	lv.Attachment0 = a0
 	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Line
 	lv.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
 	lv.LineVelocity = SLIDE_INITIAL_SPEED

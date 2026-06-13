@@ -34,12 +34,13 @@ local NPCServer = Nevermore("NPCServer")
 -- CTF flag binder: a custom module (not a Nevermore package), tagged per the
 -- shared constant so the CaptureTheFlag mode can look it up by the same name.
 local GameModeConstants = require(RS.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
+local Constants = require(RS.Nevermore.Custom.abilities.src.Shared.Constanst)
 local Flag = require(RS.Nevermore.Custom.gamemode.src.Server.Binders.Flag)
 
 local Binders = {
-	["AnimationHandler"] = AnimationHandler,
-	["Armed"] = WeaponBinder,
-	["NPC"] = NPCServer,
+	[Constants.ANIMATION_HANDLER_TAG] = AnimationHandler,
+	[Constants.ARMED_TAG] = WeaponBinder,
+	[Constants.NPC_TAG] = NPCServer,
 	[GameModeConstants.CTF_FLAG_TAG] = Flag,
 }
 ---------- USE BINDER PORVIDER ----------
@@ -81,12 +82,16 @@ PhysicsService:CollisionGroupSetCollidable("Players", "Weapons", false)
 ------------------Once initilized-------------------------------
 local BinderProviderStarted = serviceBag:GetService(_G.BinderProvider)
 
-local WeaponBinderStarted = BinderProviderStarted:Get("Armed")
+local WeaponBinderStarted = BinderProviderStarted:Get(Constants.ARMED_TAG)
+-- Registered in the Binders table above, so a nil here is a wiring bug (typo'd
+-- tag / missing registration), not a runtime state — fail loud, don't NPE later.
+assert(WeaponBinderStarted, `ServiceRoot: no binder registered for tag "{Constants.ARMED_TAG}"`)
 WeaponBinderStarted:GetClassAddedSignal():Connect(function(binder)
 	local character = binder.Char
 	character:SetAttribute("binder-Armed-charged", true)
 end)
-local AnimBinder = BinderProviderStarted:Get("AnimationHandler")
+local AnimBinder = BinderProviderStarted:Get(Constants.ANIMATION_HANDLER_TAG)
+assert(AnimBinder, `ServiceRoot: no binder registered for tag "{Constants.ANIMATION_HANDLER_TAG}"`)
 AnimBinder:GetClassAddedSignal():Connect(function(binder)
 	local character: Model = binder.Char
 	if not binder:IsInitialized() then
@@ -94,7 +99,8 @@ AnimBinder:GetClassAddedSignal():Connect(function(binder)
 	end
 end)
 
-local NPCBinderServer = BinderProviderStarted:Get("NPC")
+local NPCBinderServer = BinderProviderStarted:Get(Constants.NPC_TAG)
+assert(NPCBinderServer, `ServiceRoot: no binder registered for tag "{Constants.NPC_TAG}"`)
 -- Start (brain election) must run at bind time, not from PlayerAdded: bots
 -- spawned mid-match (GameModeService) bind long after every player joined,
 -- so a PlayerAdded-driven start would never reach them. Election with zero
@@ -155,9 +161,9 @@ end
 -- binder (Weapon/AnimationHandler/CD) would ever bind to it again.
 local function onCharacterAdded(char: Model)
 	setCharacterCollider(char)
-	CollectionService:AddTag(char, "AnimationHandler")
-	CollectionService:AddTag(char, "Armed")
-	CollectionService:AddTag(char, "CD")
+	CollectionService:AddTag(char, Constants.ANIMATION_HANDLER_TAG)
+	CollectionService:AddTag(char, Constants.ARMED_TAG)
+	CollectionService:AddTag(char, Constants.CD_TAG)
 	CombatMediator.CharacterAdded(char)
 
 	-- Default loadout: a bare character never fires ChildAdded/Equipment,

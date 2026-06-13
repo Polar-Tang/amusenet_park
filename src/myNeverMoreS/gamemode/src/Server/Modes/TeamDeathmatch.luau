@@ -17,12 +17,15 @@ local resolveTeam = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shar
 local TeamDeathmatch = setmetatable({}, { __index = TeamMode })
 TeamDeathmatch.__index = TeamDeathmatch
 
-function TeamDeathmatch.new(config: gameModeTypes.ModeConfig)
-	return setmetatable(TeamMode.new(config) :: any, TeamDeathmatch)
+-- No new fields over TeamMode; the typeof captures the `onKill` override.
+export type TeamDeathmatch = typeof(setmetatable({}, TeamDeathmatch)) & TeamMode.TeamMode
+
+function TeamDeathmatch.new(config: gameModeTypes.ModeConfig): TeamDeathmatch
+	return setmetatable(TeamMode.new(config) :: any, TeamDeathmatch) :: TeamDeathmatch
 end
 
-function TeamDeathmatch.onKill(self, attackerChar: Model, defenderChar: Model)
-	if attackerChar == defenderChar then
+function TeamDeathmatch.onKill(self: TeamDeathmatch, attackerChar: Model, defenderChar: Model)
+	if attackerChar == defenderChar or not self._deps then
 		return
 	end
 

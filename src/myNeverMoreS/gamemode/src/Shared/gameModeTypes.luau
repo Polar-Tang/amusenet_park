@@ -27,7 +27,11 @@ export type ModeConfig = {
 	timeLimitSeconds: number,
 	teams: { TeamSpec }?, -- nil => non-team mode (LMS)
 	respawnEnabled: boolean, -- false => ServiceRoot denies RespawnRequest (LMS)
-	equipDefaultWeapon: boolean, -- false => no fist on spawn (LMS)
+	equipDefaultWeapon: boolean, -- false => no fist on spawn
+	-- true => clone ServerStorage.weapons into every real player's Backpack on
+	-- spawn (replaces StarterPack). LMS sets this false: survivors carry only the
+	-- default fist (equipDefaultWeapon stays true), never the gun loadout.
+	giveLoadout: boolean,
 }
 
 -- What the lobby sends (MessagingService "MatchFound" payload / TeleportData).
@@ -61,8 +65,17 @@ export type GameModeDeps = {
 	endMatch: (winner: TeamId?) -> (),
 }
 
+-- The strategy surface GameModeService drives AND the shape every mode shares:
+-- BaseMode implements it whole, and each concrete mode `&`-extends it with its
+-- own fields (TeamMode adds `_npc`, LastManStanding adds its alive set, …). The
+-- service only calls the hooks; `config`/`_deps`/`_maid` are the protected
+-- context the modes themselves read, declared here so an extending mode inherits
+-- the fields its overrides touch without redeclaring them.
 export type GameMode = {
 	config: ModeConfig,
+	_deps: GameModeDeps?,
+	_maid: any,
+
 	Init: (self: GameMode, deps: GameModeDeps) -> (),
 	Start: (self: GameMode, payload: MatchPayload) -> (),
 	Stop: (self: GameMode) -> (),
@@ -73,6 +86,31 @@ export type GameMode = {
 	onCharacterAdded: (self: GameMode, char: Model, player: Player?) -> (),
 	onKill: (self: GameMode, attackerChar: Model, defenderChar: Model) -> (),
 	Destroy: (self: GameMode) -> (),
+}
+
+-- The class-table side of a mode strategy. GameModeService.MODE_REGISTRY maps a
+-- mode id to one of these and `.new(config)` is the only member it calls; `T` is
+-- the concrete mode the class builds (defaults to the base interface).
+export type GameModeClass<T = GameMode> = {
+	new: (config: ModeConfig) -> T,
+}
+
+--[=[
+	The persistent game-mode context, generic over the GameMode strategy `T` it
+	runs (defaults to the base interface; a caller that knows which mode it
+	launched can specialize). The service owns ScoreState, the Team instances,
+	the timer, win checks and replication — the generic documents that all of its
+	hooks drive one `T`-shaped strategy at a time (`MODE_REGISTRY: { [string]:
+	GameModeClass<T> }`).
+]=]
+export type GameModeService<T = GameMode> = {
+	ServiceName: string,
+	StartMatch: (self: GameModeService<T>, payload: MatchPayload) -> (),
+	CanRespawn: (self: GameModeService<T>, player: Player) -> boolean,
+	ShouldEquipDefaultWeapon: (self: GameModeService<T>) -> boolean,
+	GetScoreState: (self: GameModeService<T>) -> ScoreState,
+	Init: (self: GameModeService<T>, bag: any) -> (),
+	Start: (self: GameModeService<T>) -> (),
 }
 
 return {}

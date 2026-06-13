@@ -66,32 +66,9 @@ estilizado como wonkeland
 - ajustes
 - invnetario/personalizar
 - leaderboard
-### Modos de juego
-The lobby needs to be changed a little bit to send game modes to the other place
-We were doing ctf
- Implement a ctf game mode, it's also for teams, there's a binder that tags
-  the player who fire it, do security checks, and use
-  src/myNeverMoreS/gamemode/src/Server/ZoneController.luau for each team from
-  a part taggged (string at contast)
-- there are 3 points per team and render them 
-- teams can capture the each other flag
-- if player who holds the flag dies point doesn't count and the flag returns to its point
-- flag cannot be capture while it's already captured
-
-  also create a component that init with a remote event that's fired by the server with character who holds the flag, it setps a billboard with auotocatically unmonts in adornee ancestry changed to nil
-### lms
-What make last man standing mode so different is that it doesn't use any team, so resolveTeam and similar function may have a fallback for this. Another this is that from every other mode we should place the weapons from serverStorage.weapons instead of using starter pack and lastManStanding doesn't do that.
-Check if this breaks Fist equip as default weapon because we still do want to use it
 
 ###  para pensar
 Base mode has a win method, when its called it should teleport back to the server, how could we do that?
-
-### slide solution
-There's an error of
-'ReplicatedStorage.Nevermore.Custom.weapon.src.Shared.CombatConfig:234: attempt to call missing method 'ChangeChildren' of table ' after calling slide
-
-### Performance refactorization
-In the casts ray process, we validate humanoid, FindFirstAncestorOfClass("Model"), we use findFirst child and another methods that injuries the performace, castRays, validate humanoid, canPlayerDamageHumanoid, hitPartData infor, everything should have a context, maybe they should be a class that do all of this methods once
 
 ### Id for ban player in for a detected exploit
 There's an exploit found in the bots when we set networkownership to client. I will not remove the exploit but i got an id: Add a registry ban system, it's a custom nevermore service that writes a player user id in a cloud storage. 
@@ -99,11 +76,16 @@ Note: i'm not sure if i should write it to datastorage service because i don't k
 We asume a player is cheating by counting the npc shots, if he's not shooting in the cooldown interal it should we get the player owner and asume it's cheating.
 What do you think?
 
-### Refactor RangeAttackCLient
-At src/myNeverMoreS/abilities/src/Client/Abilities/RangeAttackClient.luau Please move all the related logic for camera handling and recoiling to a different class 
-
 ### What happens to quests?
-Currently i'm trying to access the quests 
+Currently i'm trying to access the quests from two different places in the same experience by rendering them in the UI by QuestProgressRemoteEvent, but i don't see much, is the lobby acepting a quest for a 24 hours intervals and 7 days interval? if it's doing it then we can asume that the data store it's not shared between the same experience and start a plan to send the quest data to amusenet_shooter (the game) through message service
+
+### Adding a player to active games
+How could we consider active server with a game already running? The game modes in shooter have:
+```
+matchMaid:GiveTask(Players.PlayerAdded:Connect(onPlayerAdded))
+```
+How we could consider the servers that are running a game mode? 
+note: we shouldn't consider game modes as LastManStanding, even we can increase its time fro finding a match later
 
 ### Keep game modes in shooter
 ### Last man standing

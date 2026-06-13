@@ -23,7 +23,7 @@ Key frameworks:
 
 ## Core Patterns
 Services initialized in ServiceRoot are stored as a variable in `_G` once they are initialized
-- **Service Access**: Use `_G.ServiceBag:GetService()` and `_G.BinderProvider:Get(tag):Get(object)` for global services/binders
+- **Service Access**: Use `_G.ServiceBag:GetService(<ServiceModule>)` for a service, and `_G.ServiceBag:GetService(_G.BinderProvider):Get(tag):Get(object)` for a binder. **`_G.BinderProvider` is a service KEY, not the started provider** — see *Retrieving a service / binder from inside a service* below; never call `:Get(tag)` directly on `_G.BinderProvider`.
 - **Binders**: Tag objects with CollectionService tags like "Armed", "AnimationHandler"; bind behaviors via BinderProvider
 - **Combat Flow**: "Armed" tag is used for weapon binder which strongly uses inheritance behaviour and allowing weapon strategies and abilities to be data-driven from `/src/myNeverMoreS/weapon/src/Shared/CombatConfig.luau`
 - **Armed binder**: Weapon binder is a context for weapons, `src/myNeverMoreS/weapon`, every weapon it's a different strategy which inherits from `src/myNeverMoreS/weapon/src/Server/Binders/Weapons/WeaponBase` (server) or `WeaponBaseClient` (client). Both now extend `SharedWeaponBase` (`src/myNeverMoreS/weapon/src/Shared/Binders/Weapons/SharedWeaponBase.luau`) which owns the `_createAbilities` method. Weapons create abilities via `createAbilitiesFromKey()` using `skills` and `attacks` keys from the data table
@@ -59,9 +59,37 @@ Access pattern from anywhere:
 
 ```lua
 local BinderProvider = _G.ServiceBag:GetService(_G.BinderProvider)
-local WeaponBinder = BinderProvider:Get("Armed")
+local WeaponBinder = BinderProvider:Get(Constants.ARMED_TAG)
 local weaponHandler = WeaponBinder:Get(character) -- the bound class for this character
 ```
+
+### Retrieving a service / binder from inside a service
+
+A ServiceBag **service** is a module table with `ServiceName`, an `Init(self, serviceBag)` and (usually) a `Start(self)`. ServiceRoot registers it with `serviceBag:GetService(Module)` **before** `serviceBag:Init()` / `serviceBag:Start()`; the bag then calls each service's `Init(self, serviceBag)` (handing it the bag) and later `Start(self)`. So a service reaches its dependencies through the **bag it was handed at `Init`** — not through `_G` and not by `require`-ing another service directly.
+
+```lua
+function MyService.Init(self, serviceBag)
+    -- Stash the bag in an UPVALUE, not a self field (see the servicebag-instance-
+    -- vs-module-identity memory): the bag wraps the module in setmetatable({}, …),
+    -- so a self field written here won't be visible to a direct require of the module.
+    serviceBag = serviceBag
+end
+```
+
+**Getting another service:** `serviceBag:GetService(OtherServiceModule)` — pass the *module* as the key; the bag returns the started, cached instance. Grab services whose runtime behavior you need in `Start`, not `Init` (an `Init`-time `GetService` returns a half-built proxy whose `Start` hasn't run — see the CameraStackService gotcha below).
+
+**Getting a binder:** binders are reached through the BinderProvider service, and `_G.BinderProvider` is the **registration KEY** for it (it holds the raw provider object ServiceRoot built, whose binders have *not* started). The **started** provider — the one whose binders are live — only comes back from `serviceBag:GetService(_G.BinderProvider)`:
+
+```lua
+local provider = serviceBag:GetService(_G.BinderProvider) -- started instance, NOT _G.BinderProvider itself
+local flagBinder = provider:Get(GameModeConstants.CTF_FLAG_TAG)
+```
+
+Calling `:Get(tag)` straight on `_G.BinderProvider` is the trap (it bit `CaptureTheFlag` — it returned binders that looked empty). Always go through `GetService` first.
+
+**Non-service objects** that the bag never `Init`s directly (the game-mode strategies, for instance) get the bag handed *down* to them — modes receive it as `deps.serviceBag` (set in `GameModeService.Init`, passed through `BaseMode.Init`). Use that, not `_G`.
+
+**Tags are constants, not literals:** the binder tags (`ARMED_TAG`, `ANIMATION_HANDLER_TAG`, `CD_TAG`, `NPC_TAG`) live in `src/myNeverMoreS/abilities/src/Shared/Constanst.luau`. Both ServiceRoots register the `Binders` table and `AddTag` characters using those constants — never re-hardcode the string.
 
 ### Equip / unequip workflow
 
@@ -81,9 +109,10 @@ Equipping a real Tool over the default fist needs no unequip step: `EquiTool` de
 
 ### Common pitfalls
 
-- **Binders are services**: always retrieve via `BinderProvider:Get(tag)` (or `_G.BinderProvider:Get(tag)`), never construct your own.
+- **Binders are services**: always retrieve via the *started* provider — `serviceBag:GetService(_G.BinderProvider):Get(tag)` (`_G.BinderProvider` is the registration key, not the started provider; `:Get(tag)` straight on it is the trap) — never construct your own. See *Retrieving a service / binder from inside a service* above.
 - **Constructor must not yield**: yielding constructors race the tag-removed signal and trigger `[Binder._add] - Failed to load instance, removed while loading!` warnings (Binder.lua:691).
 - **Destroy is automatic on untag**: if your bound class has `:Destroy()`, it will be called by `MaidTaskUtils.doTask` when the tag is removed. You don't need a `ClassRemovingSignal` listener for cleanup — just implement `Destroy` correctly.
+- **Instantiation is deferred — never snapshot `binder:GetAll()` at one instant**: `Binder:Start` schedules each pre-tagged instance with `task.spawn(self._add, …)` (Binder.lua:216) and binds the rest through `GetInstanceAddedSignal`, so a class can be constructed a frame (or more) *after* your consumer code runs. A one-shot `binder:GetAll()` / `provider:Get(tag):GetAll()` read at the top of some `Start` races that and silently returns `{}` even though the instances exist and bind moments later (this bit `CaptureTheFlag.Start` — flags tagged in the map came back empty). The tell: the bound class's own constructor *is* firing (prints land), but the consumer saw nothing. **Fix = react, don't snapshot**: connect `binder:GetClassAddedSignal()` (catches binds now *and* later, and re-fires on a destroy→re-tag), pair with `GetClassRemovingSignal()` to drop stale entries, and run a `GetAll()` sweep for whatever was already bound — make the per-instance handler idempotent since the sweep and the signal can both reach the same instance (same re-entry lesson as the ServiceRoot NPC sweep). `GetClassAddedSignal` fires from *inside* `_add` **after** the constructor returns (Binder.lua:722, post line-688 `constructor.new`), so anything the constructor built synchronously (a ProximityPrompt, etc.) is guaranteed to exist when your handler runs — there is no "signal fired before the object was ready" race **as long as the constructor doesn't yield** (which it must not anyway). If you genuinely need a single instance and can yield, use `binder:Promise(inst)`; to stream use `binder:ObserveBrio(inst)` / `ObserveAllBrio()`.
 - **Session services must never cache `player.Character` in a field (respawn)**: both ServiceRoots and every ServiceBag service survive death; only the character Model is replaced. Anything character-scoped is (re)applied per spawn: the server re-tags + re-applies combat attributes in `onCharacterAdded` (`ServiceRoot.server.luau`, calls `CombatMediator.CharacterAdded(char)`), the client rebuilds the tool `ChildAdded`/`ChildRemoved` wiring in its own `onCharacterAdded` (per-character maid), `shiftLockController` re-acquires the rig on `LocalPlayer.CharacterAdded` (and drops its cached `_weaponClient`), `handHeadCamera` re-resolves its Motor6D rig lazily when `LocalPlayer.Character` changes, and `MainApp` re-injects the new character's WeaponClient into the Roact tree on every "Armed" rebind. New code should either read the character live each use or hook `CharacterAdded` with per-character cleanup — never capture it once at module/service init.
 
 ## Death / respawn flow (manual respawn + killer cam)
@@ -269,6 +298,7 @@ It's tempting to `BindToRenderStep(..., Camera+75, fn)` after `CameraStackServic
 - **Events**: Define in `RS.RemoteEvents/` as model.json; Listen to this events in `serviceMediator` or main entry point (`ServiceRoot`)
 - **UI**: Use Roact components in `client/UI/`; mount to PlayerGui
 - **File Naming**: `.luau` for module scripts, `.rbxmx` for models
+- **Assert constant-keyed lookups**: whenever you fetch a tag, attribute, child, or binder **by a value from a constants module** (`Constanst.luau`, `GameModeConstants`, `NpcConstants`, …) and the thing it names is supposed to be there by construction — a binder registered in a `Binders` table, an attribute the server always seeds, a child the rig always ships — `assert` the result is non-nil with a message naming the constant. A nil there is a wiring bug (typo'd constant, missing registration), not a runtime state, so it must fail loud at the lookup instead of NPE-ing three frames later in an unrelated method. The message should quote the tag/key so the failure points straight at the missing registration, e.g. `assert(binder, \`ServiceRoot: no binder registered for tag "{Constants.ARMED_TAG}"\`)`. **Do NOT assert things that legitimately may be absent** — a Tool the player hasn't equipped, a map-authored part an artist may not have placed (CTF tolerates an unflagged map with a `warn`, not an `assert`), an attribute that is genuinely optional. Reserve `assert` for "this is always wired; if it isn't, the build is broken" (matches the style guide's *throw only to validate correct usage*); use an early-return guard or `warn` for "this might not be here yet / might be off."
 
 ## Key Files
 - `src/server/ServiceRoot.server.luau`: Service initialization, player setup

@@ -1,0 +1,183 @@
+--[=[
+	@class LastManStanding
+	The "lms" strategy: free-for-all, one life, last survivor wins. It extends
+	BaseMode (NOT TeamMode) because everything that makes it different is the
+	absence of the team machinery:
+
+	  * No teams. config.teams is nil, so GameModeService creates no Team
+	    instances and never assigns anyone — every player and bot stays teamless.
+	    `resolveTeam` returns nil for a teamless combatant and the damage gate
+	    (canPlayerDamageHumanoid) reads nil as "allow", so FFA falls straight out
+	    of the existing rules: the "fallback" the team modes never needed is just
+	    the pre-gamemode neutral behavior, already in resolveTeam.
+	  * No respawn (config.respawnEnabled = false): ServiceRoot denies
+	    RespawnRequest, so a death is an elimination.
+	  * No weapons loadout (config.giveLoadout = false): players keep the default
+	    fist (equipDefaultWeapon stays true) but are NOT handed the ServerStorage
+	    weapons the team modes get — so onCharacterAdded here deliberately does not
+	    chain BaseMode.onCharacterAdded.
+
+	Win condition. GameModeService owns the timer and the score cap, but an
+	elimination win isn't score-shaped, so LMS calls deps.endMatch directly:
+	  * elimination — once the round has had >= 2 living players and exactly one
+	    remains, that survivor wins (0 left, a mutual kill => draw);
+	  * time-up — GameModeService's timer calls endMatch(timerWinner()), which
+	    ranks ScoreState.scores; LMS tallies each real player's kills there
+	    (deps.addScore) so the most-kills player wins a timed-out round, ties =>
+	    draw. The score cap (config.targetScore) is parked out of reach so this
+	    tally never ends the round early.
+
+	Bots are FFA fodder: spawned teamless via NpcSpawner, they fight and can
+	eliminate players but can never win — only real players are tracked for the
+	last-standing check. One life means no respawn wiring; Stop despawns them.
+]=]
+
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
+local BaseMode = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.BaseMode)
+local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.gameModeTypes)
+
+local NpcSpawner = require(ServerScriptService.Server.NPC.NpcSpawner)
+
+local LastManStanding = setmetatable({}, { __index = BaseMode })
+LastManStanding.__index = LastManStanding
+
+-- Extends the shared GameMode shape (via BaseMode) with the FFA round state: no
+-- teams, so none of TeamMode's roster — just the live set, the contest gate and
+-- the bot rigs.
+export type LastManStanding = typeof(setmetatable(
+	{} :: {
+		-- player -> true while alive. One life, so a key is removed on death and
+		-- never re-added; the live set IS the round's remaining survivors.
+		_alive: { [Player]: boolean },
+		_aliveCount: number,
+		-- Arms the elimination win only after the round has been a contest (>= 2
+		-- alive): without it a solo Studio playtest would "win" instantly.
+		_armed: boolean,
+		-- FFA bot rigs, despawned at Stop (no respawn in a one-life round).
+		_bots: { Model },
+	},
+	LastManStanding
+)) & BaseMode.BaseMode
+
+function LastManStanding.new(config: gameModeTypes.ModeConfig): LastManStanding
+	local self = setmetatable(BaseMode.new(config) :: any, LastManStanding)
+
+	self._alive = {} :: { [Player]: boolean }
+	self._aliveCount = 0
+	self._armed = false
+	self._bots = {} :: { Model }
+
+	return self :: LastManStanding
+end
+
+-- Begins tracking a real player as alive and arms the death that eliminates
+-- them. Idempotent: the match-start sweep and the CharacterAdded signal can both
+-- reach a player present at Start.
+function LastManStanding._trackPlayer(self: LastManStanding, player: Player, char: Model)
+	if self._alive[player] then
+		return
+	end
+
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return
+	end
+
+	self._alive[player] = true
+	self._aliveCount += 1
+	if self._aliveCount >= 2 then
+		self._armed = true -- the round became a real contest
+	end
+
+	-- Died (not the kill signal) covers every elimination cause — a rival's
+	-- shot, a fall, a reset. Keyed in the maid by player so a leave/Stop drops it.
+	self._maid["died_" .. player.UserId] = humanoid.Died:Connect(function()
+		self:_eliminate(player)
+	end)
+end
+
+function LastManStanding._eliminate(self: LastManStanding, player: Player)
+	if not self._alive[player] then
+		return
+	end
+	self._alive[player] = nil
+	self._aliveCount -= 1
+	self._maid["died_" .. player.UserId] = nil
+	self:_checkWin()
+end
+
+-- Last survivor wins. Only fires once the round has been a contest (>= 2 alive)
+-- so a single-player session never insta-ends; a mutual kill (0 left) is a draw.
+function LastManStanding._checkWin(self: LastManStanding)
+	if not self._armed or not self._deps or self._aliveCount > 1 then
+		return
+	end
+
+	local winner: gameModeTypes.TeamId? = nil
+	for player in self._alive do
+		winner = player.Name -- ScoreState.winner is a plain string; the player name reads fine on the HUD
+	end
+	self._deps.endMatch(winner)
+end
+
+function LastManStanding.onCharacterAdded(self: LastManStanding, char: Model, player: Player?)
+	-- NOTE: intentionally does NOT chain BaseMode.onCharacterAdded — LMS hands out
+	-- no loadout (config.giveLoadout is false), survivors carry only the fist.
+	if not player then
+		return
+	end
+	self:_trackPlayer(player, char)
+end
+
+function LastManStanding.onPlayerRemoving(self: LastManStanding, player: Player)
+	-- A leaver is out of the running like a death (covers a rage-quit at 2 left).
+	self:_eliminate(player)
+end
+
+function LastManStanding.onKill(self: LastManStanding, attackerChar: Model, defenderChar: Model)
+	if attackerChar == defenderChar or not self._deps then
+		return
+	end
+	-- Only a real player banks a kill (bots can't win). The tally exists solely
+	-- to rank survivors if the round times out — GameModeService.timerWinner
+	-- reads ScoreState.scores, and the cap is parked out of reach so this never
+	-- ends the round early.
+	local attacker = Players:GetPlayerFromCharacter(attackerChar)
+	if not attacker then
+		return
+	end
+	self._deps.addScore(attacker.Name, 1)
+end
+
+function LastManStanding.Start(self: LastManStanding, payload: gameModeTypes.MatchPayload)
+	-- FFA bots: no teamIds => no GameTeam attribute => teamless (Neutral), so the
+	-- brain hunts real players and the damage gate lets everyone hurt them. One
+	-- life, so no respawn wiring — just hold the rigs for Stop teardown.
+	local botCount = payload.botCount or 0
+	if botCount > 0 then
+		self._bots = NpcSpawner.Spawn(botCount)
+	end
+end
+
+function LastManStanding.Stop(self: LastManStanding)
+	-- Despawn FFA bots so their brains stop shooting during the end screen
+	-- (untag runs the NPC binder Destroy chain), then drop the alive watches.
+	for _, rig in self._bots do
+		if rig.Parent then
+			CollectionService:RemoveTag(rig, Constants.NPC_TAG)
+			rig:Destroy()
+		end
+	end
+	self._bots = {}
+
+	BaseMode.Stop(self) -- _maid:DoCleaning drops the Died/leave connections
+	table.clear(self._alive)
+	self._aliveCount = 0
+end
+
+return LastManStanding

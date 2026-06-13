@@ -52,8 +52,13 @@ function Flag.new(flag: BasePart, _serviceBag: any, _binderProvider: any)
 	self._carrier = nil :: Model? -- the character currently holding this flag
 	self._active = false -- the CTF mode toggles this on at Start
 
-	-- One custom prompt per flag. The distances/text here are client hints; the
-	-- real gate is the server re-validation in `_onTriggered`.
+	self:_createProximityPrompt()
+	return self
+end
+
+-- One custom prompt per flag. The distances/text here are client hints; the
+-- real gate is the server re-validation in `_onTriggered`.
+function Flag._createProximityPrompt(self)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Steal Flag"
 	prompt.ObjectText = (self._team or "Flag") .. " Flag"
@@ -61,15 +66,14 @@ function Flag.new(flag: BasePart, _serviceBag: any, _binderProvider: any)
 	prompt.MaxActivationDistance = GameModeConstants.CTF_GRAB_DISTANCE
 	prompt.RequiresLineOfSight = false
 	prompt.Enabled = false
-	prompt.Parent = flag
+	prompt.Parent = self._flag
 	self._prompt = prompt
 	self._maid:GiveTask(prompt)
 
 	self._maid:GiveTask(prompt.Triggered:Connect(function(player: Player)
 		self:_onTriggered(player)
 	end))
-
-	return self
+	print("prompt ", prompt)
 end
 
 function Flag.GetTeam(self): gameModeTypes.TeamId?
@@ -190,6 +194,7 @@ function Flag.Destroy(self)
 	-- Untag the carrier before the maid tears the rest down.
 	self:ReturnToBase()
 	self._maid:DoCleaning()
+	print("DESTROYINF FLAG")
 end
 
 return Flag

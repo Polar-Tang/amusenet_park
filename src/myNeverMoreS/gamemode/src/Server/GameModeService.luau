@@ -30,17 +30,22 @@ local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.sr
 local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.gameModeTypes)
 local CaptureTheFlag = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.CaptureTheFlag)
 local KingOfTheHill = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.KingOfTheHill)
+local LastManStanding = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.LastManStanding)
 local TeamDeathmatch = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.TeamDeathmatch)
 
 local MatchStateRemote: RemoteEvent = ReplicatedStorage.Shared.RemoteEvents.MatchState
 
 -- Adding a mode = one entry here + one ModeConfig entry + the strategy file.
-local MODE_REGISTRY: { [string]: any } = {
+-- Each value is a GameMode class (its `.new(config)` builds the strategy).
+local MODE_REGISTRY: { [string]: gameModeTypes.GameModeClass<gameModeTypes.GameMode> } = {
 	tdm = TeamDeathmatch,
 	koth = KingOfTheHill,
 	ctf = CaptureTheFlag,
+	lms = LastManStanding,
 }
 
+-- Typed as gameModeTypes.GameModeService at the return (the generic is left at
+-- its GameMode default: this reserved server hosts one mode chosen at runtime).
 local GameModeService = {}
 GameModeService.ServiceName = "GameModeService"
 
@@ -51,7 +56,7 @@ local serviceBag: any = nil
 local started = false
 local latched = false
 local pendingPayload: gameModeTypes.MatchPayload? = nil
-local activeMode: any = nil
+local activeMode: gameModeTypes.GameMode? = nil
 local activeConfig: gameModeTypes.ModeConfig? = nil
 
 -- Single source of truth, broadcast whole on every mutation (tiny payload).
@@ -177,20 +182,21 @@ local function startMatchNow(payload: gameModeTypes.MatchPayload)
 		endMatch = endMatch,
 	}
 
-	activeMode = MODE_REGISTRY[modeId].new(config)
-	activeMode:Init(deps)
+	local newActiveMode = MODE_REGISTRY[modeId].new(config)
+	activeMode = newActiveMode
+	newActiveMode:Init(deps)
 
 	matchMaid:GiveTask(EffectService.CharacterDied:Connect(function(attackerChar, defenderChar)
-		activeMode:onKill(attackerChar, defenderChar)
+		newActiveMode:onKill(attackerChar, defenderChar)
 	end))
 	matchMaid:GiveTask(Players.PlayerAdded:Connect(onPlayerAdded))
 	matchMaid:GiveTask(Players.PlayerRemoving:Connect(function(player)
 		matchMaid["char_" .. player.UserId] = nil
-		activeMode:onPlayerRemoving(player)
+		newActiveMode:onPlayerRemoving(player)
 	end))
 
 	scoreState.phase = "active"
-	activeMode:Start(payload)
+	newActiveMode:Start(payload)
 
 	-- Teleported players can land before the lobby payload arrives — sweep
 	-- whoever is already here (onPlayerAdded is idempotent by contract).
@@ -263,4 +269,4 @@ function GameModeService.Start(_self: any)
 	end
 end
 
-return GameModeService
+return GameModeService :: gameModeTypes.GameModeService<gameModeTypes.GameMode>

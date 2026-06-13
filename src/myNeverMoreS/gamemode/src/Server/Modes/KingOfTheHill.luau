@@ -33,17 +33,25 @@ local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Sh
 local KingOfTheHill = setmetatable({}, { __index = TeamMode })
 KingOfTheHill.__index = KingOfTheHill
 
-function KingOfTheHill.new(config: gameModeTypes.ModeConfig)
+export type KingOfTheHill = typeof(setmetatable(
+	{} :: {
+		_zone: ZoneController.ZoneController?, -- built at Start once the hill is found
+		_accum: number, -- Heartbeat accumulator toward the next scoring tick
+	},
+	KingOfTheHill
+)) & TeamMode.TeamMode
+
+function KingOfTheHill.new(config: gameModeTypes.ModeConfig): KingOfTheHill
 	local self = setmetatable(TeamMode.new(config) :: any, KingOfTheHill)
 
-	self._zone = nil -- ZoneController?, built at Start once the hill is found
-	self._accum = 0 -- Heartbeat accumulator toward the next scoring tick
+	self._zone = nil
+	self._accum = 0
 
-	return self
+	return self :: KingOfTheHill
 end
 
 -- The first BasePart tagged KOTH_ZONE_TAG that's actually in the world.
-function KingOfTheHill._findZone(_self): BasePart?
+function KingOfTheHill._findZone(_self: KingOfTheHill): BasePart?
 	for _, inst in CollectionService:GetTagged(GameModeConstants.KOTH_ZONE_TAG) do
 		if inst:IsA("BasePart") and inst:IsDescendantOf(Workspace) then
 			return inst
@@ -54,7 +62,10 @@ end
 
 -- Classic KOTH control: exactly one team inside controls; zero teams (empty) or
 -- two-plus (contested) => nobody scores.
-function KingOfTheHill._controllingTeam(_self, counts: { [gameModeTypes.TeamId]: number }): gameModeTypes.TeamId?
+function KingOfTheHill._controllingTeam(
+	_self: KingOfTheHill,
+	counts: { [gameModeTypes.TeamId]: number }
+): gameModeTypes.TeamId?
 	local controller: gameModeTypes.TeamId? = nil
 	local present = 0
 	for teamId, count in counts do
@@ -66,7 +77,7 @@ function KingOfTheHill._controllingTeam(_self, counts: { [gameModeTypes.TeamId]:
 	return if present == 1 then controller else nil
 end
 
-function KingOfTheHill._tickControl(self)
+function KingOfTheHill._tickControl(self: KingOfTheHill)
 	if not self._zone or not self._deps then
 		return
 	end
@@ -80,7 +91,7 @@ function KingOfTheHill._tickControl(self)
 	end
 end
 
-function KingOfTheHill.Start(self, payload: gameModeTypes.MatchPayload)
+function KingOfTheHill.Start(self: KingOfTheHill, payload: gameModeTypes.MatchPayload)
 	-- Roster + balanced team assignment first (TeamMode owns the bots).
 	TeamMode.Start(self, payload)
 

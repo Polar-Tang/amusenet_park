@@ -43,7 +43,16 @@ local resolveTeam = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shar
 local CaptureTheFlag = setmetatable({}, { __index = TeamMode })
 CaptureTheFlag.__index = CaptureTheFlag
 
-function CaptureTheFlag.new(config: gameModeTypes.ModeConfig)
+export type CaptureTheFlag = typeof(setmetatable(
+	{} :: {
+		_flags: { any }, -- Flag binder instances, one per tagged flag part
+		_zones: { [gameModeTypes.TeamId]: ZoneController.ZoneController }, -- per-team home zone
+		_accum: number, -- Heartbeat accumulator toward the next capture tick
+	},
+	CaptureTheFlag
+)) & TeamMode.TeamMode
+
+function CaptureTheFlag.new(config: gameModeTypes.ModeConfig): CaptureTheFlag
 	local self = setmetatable(TeamMode.new(config) :: any, CaptureTheFlag)
 
 	-- Long-lived Flag binder instances (one per tagged flag part), captured at
@@ -55,20 +64,56 @@ function CaptureTheFlag.new(config: gameModeTypes.ModeConfig)
 	self._zones = {} :: { [gameModeTypes.TeamId]: ZoneController.ZoneController }
 	self._accum = 0 -- Heartbeat accumulator toward the next capture tick
 
-	return self
+	return self :: CaptureTheFlag
 end
 
--- The Flag binder instances for every BasePart tagged CTF_FLAG_TAG. Read once at
--- Start through the standard binder-provider path (set well before a match
--- latches; see GameModeService).
-function CaptureTheFlag._collectFlags(_self): { any }
-	local provider = _G.BinderProvider
-	local binder = provider and provider:Get(GameModeConstants.CTF_FLAG_TAG)
-	return if binder then binder:GetAll() else {}
+-- The Flag binder for CTF_FLAG_TAG (or nil if the bag/provider isn't up yet).
+-- `_G.BinderProvider` is the service KEY, not the started provider — the running
+-- instance (whose binders have started) comes from `serviceBag:GetService` on it
+-- (same pattern as ServiceRoot). The bag is handed to us at Init via deps. The
+-- flags themselves are authored in the map and instantiated by the binder; we
+-- never build them here, only observe them through this.
+function CaptureTheFlag._getFlagBinder(self: CaptureTheFlag): any
+	local serviceBag = self._deps and self._deps.serviceBag
+	if not serviceBag or not _G.BinderProvider then
+		return nil
+	end
+	local provider = serviceBag:GetService(_G.BinderProvider)
+	if not provider then
+		return nil
+	end
+	-- CTF_FLAG_TAG is registered in ServiceRoot's Binders table, so once the
+	-- provider is up the binder MUST exist — a nil is a wiring bug (unregistered
+	-- tag), distinct from "the map authored no flag parts" (tolerated below).
+	local binder = provider:Get(GameModeConstants.CTF_FLAG_TAG)
+	assert(binder, `[CaptureTheFlag] no binder registered for tag "{GameModeConstants.CTF_FLAG_TAG}" — register it in ServiceRoot's Binders table`)
+	return binder
+end
+
+-- A flag bound (now via the GetAll sweep, or later via the class-added signal —
+-- including a re-tag after destroy). Enable it and remember it. Idempotent: the
+-- sweep and the signal can both reach a flag that was already bound at Start.
+function CaptureTheFlag._onFlagBound(self: CaptureTheFlag, flag: any)
+	if table.find(self._flags, flag) then
+		return
+	end
+	table.insert(self._flags, flag)
+	-- Safe here: Binder._add fires GetClassAddedSignal AFTER Flag.new built the
+	-- ProximityPrompt, so SetEnabled always finds a live prompt.
+	flag:SetEnabled(true)
+end
+
+-- A flag unbound (untagged/destroyed). Drop it so a re-tag rebinds cleanly; the
+-- replacement re-enters _onFlagBound through the class-added signal.
+function CaptureTheFlag._onFlagUnbound(self: CaptureTheFlag, flag: any)
+	local index = table.find(self._flags, flag)
+	if index then
+		table.remove(self._flags, index)
+	end
 end
 
 -- The flag DEFENDED by `teamId` (so we can require it be at base before scoring).
-function CaptureTheFlag._flagForTeam(self, teamId: gameModeTypes.TeamId): any
+function CaptureTheFlag._flagForTeam(self: CaptureTheFlag, teamId: gameModeTypes.TeamId): any
 	for _, flag in self._flags do
 		if flag:GetTeam() == teamId then
 			return flag
@@ -78,7 +123,7 @@ function CaptureTheFlag._flagForTeam(self, teamId: gameModeTypes.TeamId): any
 end
 
 -- The flag `character` is currently carrying (the enemy flag it stole), if any.
-function CaptureTheFlag._flagHeldBy(self, character: Model): any
+function CaptureTheFlag._flagHeldBy(self: CaptureTheFlag, character: Model): any
 	for _, flag in self._flags do
 		if flag:GetCarrier() == character then
 			return flag
@@ -89,7 +134,7 @@ end
 
 -- Build a ZoneController for each team's home zone: the first BasePart tagged
 -- CTF_HOME_ZONE_TAG whose TEAM_ATTRIBUTE matches the team id.
-function CaptureTheFlag._buildZones(self)
+function CaptureTheFlag._buildZones(self: CaptureTheFlag)
 	local byTeam: { [gameModeTypes.TeamId]: BasePart } = {}
 	for _, inst in CollectionService:GetTagged(GameModeConstants.CTF_HOME_ZONE_TAG) do
 		if inst:IsA("BasePart") and inst:IsDescendantOf(Workspace) then
@@ -109,7 +154,7 @@ end
 -- flag, with its own flag at base => one capture. Returning the stolen flag is
 -- what makes the capture "consume" it (the carrier tag clears, so it can't
 -- re-score on the next tick).
-function CaptureTheFlag._tickCaptures(self)
+function CaptureTheFlag._tickCaptures(self: CaptureTheFlag)
 	if not self._deps then
 		return
 	end
@@ -140,17 +185,44 @@ function CaptureTheFlag._tickCaptures(self)
 	end
 end
 
-function CaptureTheFlag.Start(self, payload: gameModeTypes.MatchPayload)
+function CaptureTheFlag.Start(self: CaptureTheFlag, payload: gameModeTypes.MatchPayload)
 	-- Roster + balanced team assignment first (TeamMode owns the bots).
 	TeamMode.Start(self, payload)
 
-	self._flags = self:_collectFlags()
-	for _, flag in self._flags do
-		flag:SetEnabled(true)
+	-- Flags are map-authored and bound by the Flag binder, which instantiates
+	-- via task.spawn (Binder.Start) and through GetInstanceAddedSignal — so a
+	-- flag can bind AFTER this Start runs, which a one-shot GetAll() snapshot
+	-- races (the empty-table bug). Drive enabling off the binder's class-added
+	-- stream instead: it fires once per bind (after Flag.new built the prompt),
+	-- catches late binds, and re-fires on a re-tag. The GetAll() sweep covers
+	-- flags already bound by the time we get here.
+	local binder = self:_getFlagBinder()
+	if binder then
+		self._maid:GiveTask(binder:GetClassAddedSignal():Connect(function(flag)
+			self:_onFlagBound(flag)
+		end))
+		self._maid:GiveTask(binder:GetClassRemovingSignal():Connect(function(flag)
+			self:_onFlagUnbound(flag)
+		end))
+		for _, flag in binder:GetAll() do
+			self:_onFlagBound(flag)
+		end
+	else
+		warn(`[CaptureTheFlag] BinderProvider has no "{GameModeConstants.CTF_FLAG_TAG}" binder — captures will never score`)
 	end
-	if #self._flags == 0 then
-		warn(`[CaptureTheFlag] no BasePart tagged "{GameModeConstants.CTF_FLAG_TAG}" — captures will never score`)
-	end
+
+	-- Misconfigured-map warn, deferred: an empty _flags right now may just mean
+	-- the flags haven't bound yet (the race above), so a synchronous warn would
+	-- false-positive. Check a beat later; bail if the match already stopped.
+	local stopped = false
+	self._maid:GiveTask(function()
+		stopped = true
+	end)
+	task.delay(GameModeConstants.CTF_TICK_INTERVAL, function()
+		if not stopped and #self._flags == 0 then
+			warn(`[CaptureTheFlag] no BasePart tagged "{GameModeConstants.CTF_FLAG_TAG}" — captures will never score`)
+		end
+	end)
 
 	self:_buildZones()
 	if not next(self._zones) then
@@ -167,7 +239,7 @@ function CaptureTheFlag.Start(self, payload: gameModeTypes.MatchPayload)
 	end))
 end
 
-function CaptureTheFlag.Stop(self)
+function CaptureTheFlag.Stop(self: CaptureTheFlag)
 	-- Disable flags first (returns any held flag, kills the prompt) — they
 	-- outlive the match, so Stop must clean them by hand; the zones go down with
 	-- TeamMode.Stop's DoCleaning.

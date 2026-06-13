@@ -21,6 +21,7 @@ local GameModeConfig: { [string]: gameModeTypes.ModeConfig } = {
 		},
 		respawnEnabled = true,
 		equipDefaultWeapon = true,
+		giveLoadout = true,
 	},
 	koth = {
 		id = "koth",
@@ -35,6 +36,7 @@ local GameModeConfig: { [string]: gameModeTypes.ModeConfig } = {
 		},
 		respawnEnabled = true,
 		equipDefaultWeapon = true,
+		giveLoadout = true,
 	},
 	ctf = {
 		id = "ctf",
@@ -49,6 +51,21 @@ local GameModeConfig: { [string]: gameModeTypes.ModeConfig } = {
 		},
 		respawnEnabled = true,
 		equipDefaultWeapon = true,
+		giveLoadout = true,
+	},
+	lms = {
+		id = "lms",
+		displayName = "Last Man Standing",
+		-- Free-for-all, one life: the win is the last survivor (LMS calls
+		-- endMatch directly) or the most kills at time-up (GameModeService's
+		-- timerWinner reads the per-player kill tally LMS keeps in scores). The
+		-- cap is parked far out of reach so a kill never ends the round on score.
+		targetScore = 9999,
+		timeLimitSeconds = 300,
+		teams = nil, -- FFA: everyone teamless => resolveTeam nil => everyone can hurt everyone
+		respawnEnabled = false, -- one life: ServiceRoot denies RespawnRequest
+		equipDefaultWeapon = true, -- still want the fist on spawn
+		giveLoadout = false, -- but NOT the ServerStorage weapons loadout
 	},
 }
 

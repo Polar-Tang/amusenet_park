@@ -27,6 +27,13 @@ GameModeConstants.STUDIO_FALLBACK_BOT_COUNT = 4
 -- Delay before a dead bot is replaced on the same team (TDM keeps teams full).
 GameModeConstants.NPC_RESPAWN_DELAY = 5
 
+-- ServerStorage folder of Tool templates a mode hands out on spawn (ModeConfig
+-- `giveLoadout`). This REPLACES StarterPack: the engine copies StarterPack into
+-- every player's Backpack on every spawn regardless of mode, so move the weapon
+-- Tools into ServerStorage.<this folder> and leave StarterPack empty — that lets
+-- a mode like LMS opt out (giveLoadout = false) and keep players on the fist.
+GameModeConstants.LOADOUT_FOLDER = "weapons"
+
 -- KOTH: the hill. Tag exactly one BasePart in the map with this; the mode
 -- scans whoever stands inside its bounding box (ZoneController).
 GameModeConstants.KOTH_ZONE_TAG = "KOTH_zone"
