@@ -3,6 +3,7 @@ local AmmoCounter = require(script.Parent.components.AmmoCounter)
 local Crosshair = require(script.Parent.components.Crosshair)
 local DeathScreen = require(script.Parent.components.DeathScreen)
 local FlagBillboard = require(script.Parent.components.FlagBillboard)
+local GroundPath = require(script.Parent.components.GroundPath)
 local MatchHud = require(script.Parent.components.MatchHud)
 local MobileButtons = require(script.Parent.components.MobileButtons)
 -- local SpinRoulette = require(script.Parent.components.SpinRoulette)
@@ -34,6 +35,9 @@ function App:render()
 		QuestsList = Roact.createElement(QuestsList),
 		MatchHud = Roact.createElement(MatchHud),
 		FlagBillboard = Roact.createElement(FlagBillboard),
+		GroundPath = Roact.createElement(GroundPath, {
+			enabled = true,
+		}),
 		AmmoCounter = Roact.createElement(AmmoCounter),
 		DeathScreen = Roact.createElement(DeathScreen, {
 			cameraMediator = self.props.cameraMediator,

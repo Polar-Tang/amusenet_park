@@ -34,8 +34,27 @@ export type ModeConfig = {
 	giveLoadout: boolean,
 }
 
--- What the lobby sends (MessagingService "MatchFound" payload / TeleportData).
--- accessCode / userIds / privateServerId pass through MatchListener untouched.
+-- The FULL broadcast the lobby publishes over MATCH_FOUND_TOPIC and mirrors
+-- into the teleported players' TeleportData. Every field is optional: it crosses
+-- a codebase boundary (the lobby is a separate place) so MatchListener validates
+-- each one at runtime before trusting it. Field-by-field consumption:
+--   matchId         -> narrowed into MatchPayload, forwarded to StartMatch
+--   botCount, mode  -> read by fill() into MatchPayload
+--   privateServerId -> isForThisServer primary identity check (== game.PrivateServerId)
+--   userIds         -> isForThisServer fallback identity check
+--   accessCode      -> teleport credential ONLY; a reserved server can't read its
+--                      own accessCode back, so MatchListener never touches it
+export type MatchFoundPayload = {
+	matchId: string?,
+	accessCode: string?,
+	userIds: { number }?,
+	botCount: number?,
+	mode: string?,
+	privateServerId: string?,
+}
+
+-- The narrowed subset GameModeService:StartMatch actually consumes. MatchListener
+-- distills a MatchFoundPayload (or its TeleportData mirror) down to this.
 export type MatchPayload = {
 	mode: string?,
 	botCount: number?,

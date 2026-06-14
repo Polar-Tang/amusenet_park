@@ -127,10 +127,10 @@ local CollectionService = game:GetService("CollectionService")
 
 ------------------ Quests (live per-player state, saved on leave) ------------------
 local DataStoreService = game:GetService("DataStoreService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local NpcSpawner = require(ServerScriptService.Server.NPC.NpcSpawner)
 local QuestsData = require(RS.Shared.Quests.QuestsData)
+local questTypes = require(RS.Shared.Quests.questTypes)
 local QuestService = serviceBag:GetService(QuestHandler)
 
 -- Client (QuestsList UI) asks for a resync on mount; the join-time
@@ -148,6 +148,34 @@ if not questsStoreOk then
 	warn("[ServiceRoot] - DataStore unavailable, quests will not persist: ", questsStore)
 	questsStore = nil
 end
+-- Match-aware quest load. A player teleported in from the lobby carries the
+-- whole match's quest snapshot in TeleportData.questsByUserId (the lobby is
+-- the only place that re-rolls/refreshes due quests — see PlayerQuests
+-- docstring), so prefer that record and never RefreshDue here. Only a direct
+-- join (no lobby payload) reads the persisted DataStore.
+local function loadSavedQuests(player: Player): questTypes.QuestsSaveData?
+	local joinOk, joinData = pcall(player.GetJoinData, player)
+	if joinOk and type(joinData) == "table" then
+		local teleportData = joinData.TeleportData
+		if type(teleportData) == "table" and type(teleportData.questsByUserId) == "table" then
+			local record = teleportData.questsByUserId[tostring(player.UserId)]
+			if record then
+				return record
+			end
+		end
+	end
+
+	if questsStore then
+		local loadOk, loadResult = pcall(questsStore.GetAsync, questsStore, tostring(player.UserId))
+		if loadOk then
+			return loadResult
+		end
+		warn("[ServiceRoot] - Failed to load quests for player ", player.UserId, loadResult)
+	end
+
+	return nil
+end
+
 local function setCharacterCollider(char: Model)
 	for _, descendant in ipairs(char:GetDescendants()) do
 		if descendant:IsA("BasePart") then
@@ -206,21 +234,13 @@ Players.PlayerAdded:Connect(function(player)
 	end
 
 	------------------ QUESTS ------------------
-	local savedQuests = nil
-	if questsStore then
-		local loadOk, loadResult = pcall(questsStore.GetAsync, questsStore, tostring(player.UserId))
-		if loadOk then
-			savedQuests = loadResult
-		else
-			warn("[ServiceRoot] - Failed to load quests for player ", player.UserId, loadResult)
-		end
-	end
-
+	-- Prefer the match snapshot from TeleportData; fall back to the DataStore
+	-- only on a direct join. Either way we build PlayerQuests from the record
+	-- and Resync — we never re-roll due quests in the shooter (lobby-only).
+	local savedQuests = loadSavedQuests(player)
 	QuestService:InitPlayer(player, player, savedQuests)
 	local playerQuests = QuestHandler:GetHandler(player)
-	for questName, questData in pairs(playerQuests:GetSaveData()) do
-		ReplicatedStorage.Shared.RemoteEvents.QuestProgress:FireClient(player, questData)
-	end
+	playerQuests:Resync()
 end)
 -- Respawn gate: the client's DeathScreen fires this when the player clicks
 -- the Roact respawn button. Only honored while actually dead — otherwise it
@@ -252,13 +272,6 @@ Players.PlayerRemoving:Connect(function(player)
 		if not saveOk then
 			warn("[ServiceRoot] - Failed to save quests for player ", player.UserId, saveErr)
 		end
-	end
-
-	for questName, questProgress in pairs(playerQuests:GetSaveData().quests) do
-		game.ReplicatedStorage.Shared.RemoteEvents.clientDebugConsole:FireClient(
-			player,
-			"Quest: " .. questName .. ", " .. questProgress
-		)
 	end
 
 	QuestService:RemovePlayer(player)

@@ -30,11 +30,6 @@ MessagingService:PublishAsync(Config.MATCH_FOUND_TOPIC, {
 
 ## Once in lobby
 
-#### Loby version
-We are using a quest handler version like the one from the shooter place. The deal is that shooter and lobby will syncronize through using the same datastore, but only the lobby will accept quests. It uses a pool of quests, they should be sorted by weekly and daily, we can store the last connection of the player and check if a day have passed to aceppt the 3 new random quest from the pool, the same for weekly and we can accept them. Follow the same quest pattern to align to the new quests shape and create new ones for daily and weekly by adding more quests to src/shared/Quests/QuestsData.luau.allQuests
-
-#### Lobby, arrange with bots after time out
-We are using a queu, if it doesn't find any player fills the missing players with bots, we need to sent an image to the gameServer to create a quantity of bots.
 
 ### distintos modos
 Define an architecture for using the same source file and different game mods
@@ -76,9 +71,6 @@ Note: i'm not sure if i should write it to datastorage service because i don't k
 We asume a player is cheating by counting the npc shots, if he's not shooting in the cooldown interal it should we get the player owner and asume it's cheating.
 What do you think?
 
-### What happens to quests?
-Currently i'm trying to access the quests from two different places in the same experience by rendering them in the UI by QuestProgressRemoteEvent, but i don't see much, is the lobby acepting a quest for a 24 hours intervals and 7 days interval? if it's doing it then we can asume that the data store it's not shared between the same experience and start a plan to send the quest data to amusenet_shooter (the game) through message service
-
 ### Adding a player to active games
 How could we consider active server with a game already running? The game modes in shooter have:
 ```
@@ -86,6 +78,19 @@ matchMaid:GiveTask(Players.PlayerAdded:Connect(onPlayerAdded))
 ```
 How we could consider the servers that are running a game mode? 
 note: we shouldn't consider game modes as LastManStanding, even we can increase its time fro finding a match later
+
+### Keep the lobby connected
+The data sent from the lobby to the shooter has this shape:
+```
+{
+			matchId = HttpService:GenerateGUID(false),
+			accessCode = accessCode,
+			userIds = userIds,
+			botCount = botCount,
+			mode = mode,
+		})
+```
+Are utilizing each field? we use it in fill MatchListener, please make this shape a type
 
 ### Keep game modes in shooter
 ### Last man standing

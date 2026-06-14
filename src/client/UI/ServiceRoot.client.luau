@@ -36,13 +36,19 @@ local Maid = Nevermore("Maid")
 local WeaponClient = Nevermore("WeaponClient") -- THIS IS NEW
 local AnimationHandler = Nevermore("AnimationHandler")
 local NPCClient = Nevermore("NPCClient")
+local CarrierClient = require(RS.Nevermore.Custom.gamemode.src.Client.Binders.CarrierClient)
 
 local Constants = require(RS.Nevermore.Custom.abilities.src.Shared.Constanst)
+local GameModeConstants = require(RS.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
 
 local Binders = {
 	[Constants.ANIMATION_HANDLER_TAG] = AnimationHandler,
 	[Constants.ARMED_TAG] = WeaponClient,
 	[Constants.NPC_TAG] = NPCClient,
+	-- Observe the server-authored CTF_carrier tag client-side (replicated for
+	-- free) instead of a remote duplicating the same fact — FlagBillboard +
+	-- GroundPath drive off this binder's class-added/removing signals.
+	[GameModeConstants.CTF_CARRIER_TAG] = CarrierClient,
 }
 
 ---------- USE BINDER PORVIDER ----------

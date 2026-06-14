@@ -32,11 +32,6 @@ local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.sr
 local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.gameModeTypes)
 local resolveTeam = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.resolveTeam)
 
--- Broadcast the carrier so FlagBillboard (client) can adorn a marker to whoever
--- holds a flag. The carrier tag is replicated too, but a remote is the explicit
--- mount/unmount signal the component listens on.
-local FlagCarrierRemote: RemoteEvent = ReplicatedStorage.Shared.RemoteEvents.FlagCarrier
-
 local Flag = {}
 Flag.__index = Flag
 
@@ -138,14 +133,13 @@ end
 
 function Flag._attachTo(self, character: Model)
 	self._carrier = character
-	-- Server-authored: the single source of truth FlagBillboard + the capture
-	-- ZoneController read. Hide the flag part itself; the billboard represents it.
+	-- Server-authored, replicated to every client: the single source of truth the
+	-- capture ZoneController reads and the client carry visuals (FlagBillboard +
+	-- GroundPath, via the CarrierClient binder) observe — no remote needed. Hide
+	-- the flag part itself; the billboard represents it.
 	CollectionService:AddTag(character, GameModeConstants.CTF_CARRIER_TAG)
 	self._prompt.Enabled = false
 	self._flag.Transparency = 1
-
-	-- Tell every client to raise the carry marker on this character.
-	FlagCarrierRemote:FireAllClients(character, true)
 
 	-- Drop on death (and on the carrier leaving the world): return the flag home
 	-- so it never vanishes with a corpse. Keyed on the maid so ReturnToBase can
@@ -178,12 +172,12 @@ function Flag.ReturnToBase(self)
 	self._maid._carrier = nil
 
 	if character.Parent then
+		-- Removing the tag is the unmount signal: the CarrierClient binder fires
+		-- its class-removing on every client, dropping the carry visuals. (A
+		-- death/despawn untags via the destroyed instance too, and FlagBillboard
+		-- keeps its own AncestryChanged net as a redundant backstop.)
 		CollectionService:RemoveTag(character, GameModeConstants.CTF_CARRIER_TAG)
 	end
-
-	-- Drop the carry marker (the live-return case; a death/despawn also trips the
-	-- component's own AncestryChanged auto-unmount).
-	FlagCarrierRemote:FireAllClients(character, false)
 
 	self._flag.CFrame = self._baseCFrame
 	self._flag.Transparency = self._baseTransparency

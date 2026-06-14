@@ -54,7 +54,10 @@ function SmoothShiftLock.new(CameraService, armedBinder)
 	-- cached AimPosition attachment without per-frame FindFirstChild calls.
 	self._armedBinder = armedBinder
 
-	self:CharacterAdded()
+	-- Not yielding
+	task.spawn(function()
+		self:CharacterAdded()
+	end)
 	-- Session-lived connection (deliberately NOT in connectionsMaid, which is
 	-- destroyed on death): re-acquire the rig on every respawn, otherwise the
 	-- controller keeps driving the destroyed character forever.

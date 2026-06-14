@@ -54,6 +54,7 @@ local helpers = require(ServerScriptService.Server.Utils.helpers)
 local Constanst = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
 local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
 local GameModeService = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.GameModeService)
+local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.gameModeTypes)
 
 local MatchListener = {}
 MatchListener.ServiceName = "MatchListener"
@@ -73,10 +74,12 @@ local started = false
 	see which trigger won the race. A start failure un-latches `filled` so the
 	other trigger still gets a shot.
 ]=]
-local function fill(data: any, source: string)
+local function fill(data: gameModeTypes.MatchFoundPayload, source: string)
 	if _state.filled then
 		return
 	end
+	-- Defensive despite the static type: `data` reaches us off MessagingService /
+	-- TeleportData, both `any` at runtime and authored in a separate place.
 	if type(data) ~= "table" then
 		warn(`[MatchListener] ignoring {source} trigger: payload is not a table`)
 		return
@@ -116,7 +119,7 @@ end
 	the reserved-server identity; the userIds check is a best-effort fallback
 	for a lobby that didn't send `privateServerId`.
 ]=]
-local function isForThisServer(data: any): boolean
+local function isForThisServer(data: gameModeTypes.MatchFoundPayload): boolean
 	if type(data) ~= "table" then
 		return false
 	end

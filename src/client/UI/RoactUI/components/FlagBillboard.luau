@@ -6,20 +6,17 @@ local Maid = require(ReplicatedStorage.Nevermore.Quenty.maid.Shared.Maid)
 
 local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
 
-local FlagCarrierRemote: RemoteEvent = ReplicatedStorage.Shared.RemoteEvents.FlagCarrier
-
 --[=[
-	Over-head "carrying the flag" marker. The server (Flag binder) fires
-	FlagCarrier with `(character, isCarrying)` whenever a flag is picked up or
-	returned; this component raises a BillboardGui adorned to that character's
+	Over-head "carrying the flag" marker. The server (Flag binder) authors the
+	CTF_carrier tag on whoever holds a flag; that tag replicates to every client,
+	so this component observes it through the CarrierClient binder (no remote
+	duplicating the same fact) and raises a BillboardGui adorned to each carrier's
 	head while it carries.
 
-	Two independent unmount paths, so the marker can never linger:
-	  * the server's `isCarrying = false` (a live return-to-base — the carrier is
-	    still in the world, so AncestryChanged never fires);
-	  * the adornee's own `AncestryChanged` to a nil parent (death / despawn —
-	    "automatically unmounts when the adornee leaves the world"), which the
-	    server's ReturnToBase-on-death may not beat.
+	The binder's class-removing signal is the live return-to-base / death /
+	despawn unmount (the tag drops in all three cases). The adornee's own
+	`AncestryChanged` to a nil parent is kept as a redundant safety net so the
+	marker can never linger if a teardown ever beats the binder.
 
 	BillboardGuis are rendered through a Portal into PlayerGui (they adorn to a
 	world part, so they must NOT nest inside the App ScreenGui's 2D tree).
@@ -78,16 +75,25 @@ function FlagBillboard._removeCarrier(self, character: Model)
 end
 
 function FlagBillboard:didMount()
-	self._maid:GiveTask(FlagCarrierRemote.OnClientEvent:Connect(function(character: Model?, isCarrying: boolean)
-		if typeof(character) ~= "Instance" then
-			return
-		end
-		if isCarrying then
-			self:_addCarrier(character)
-		else
-			self:_removeCarrier(character)
-		end
+	-- The started provider — _G.BinderProvider is the registration key, not the
+	-- running provider whose binders are live.
+	local provider = _G.ServiceBag:GetService(_G.BinderProvider)
+	local binder = provider:Get(GameModeConstants.CTF_CARRIER_TAG)
+	assert(binder, `FlagBillboard: no binder registered for tag "{GameModeConstants.CTF_CARRIER_TAG}"`)
+
+	-- React, don't snapshot: carriers can bind after this mount (deferred binder
+	-- instantiation), so connect the signals AND sweep GetAll for whoever is
+	-- already bound. _addCarrier is idempotent, so the sweep and a signal reaching
+	-- the same carrier is safe. The signal payload is (class, instance).
+	self._maid:GiveTask(binder:GetClassAddedSignal():Connect(function(_class, character: Model)
+		self:_addCarrier(character)
 	end))
+	self._maid:GiveTask(binder:GetClassRemovingSignal():Connect(function(_class, character: Model)
+		self:_removeCarrier(character)
+	end))
+	for _, carrier in binder:GetAll() do
+		self:_addCarrier(carrier:GetCharacter())
+	end
 end
 
 function FlagBillboard:willUnmount()
