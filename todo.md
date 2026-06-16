@@ -178,3 +178,18 @@ The proximity prompt fires a remote event the server event create two weapons an
 
 Now check if we are already using promptShown connection of a proximity promt, because we need to detect if the parent of proximity prompt has this tag, then you need to render a radar component.
 Radar component is a png of a slice of a circle, but you need to calculate the its angle between the camera and the chest position so the slice point the camera rotation needed to reach the chest
+
+We are loading from lobby some payload for teleport data:
+type MatchPayload = {
+	matchId: string,
+	botCount: number,
+	mode: string,
+	questsByUserId: { [string]: questTypes.QuestsSaveData },
+}
+
+
+### Adding a time out 
+
+
+### Check if 
+we are including the member team into the  exlude list of the ray cast

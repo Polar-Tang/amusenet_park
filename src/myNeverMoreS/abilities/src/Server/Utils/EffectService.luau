@@ -34,6 +34,11 @@ local EffectService = {}
 -- GameModeService subscribes for mode scoring.
 EffectService.CharacterDied = Signal.new()
 
+-- Server-side damage feed: fired (attacker_char, defender_char, amount) on EVERY
+-- validated hit from the same authoritative damage site below (NPC rigs included).
+-- LeaderboardService subscribes to accrue per-player damage dealt.
+EffectService.DamageDealt = Signal.new()
+
 function EffectService.SetAttHit(hited)
 	hited:SetAttribute("IsBlocking", false)
 	hited:SetAttribute("Attacking", false)
@@ -178,8 +183,16 @@ function EffectService:Apply(context: effectHitCtx)
 
 		defender_humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 		defender_humanoid.AutoRotate = true
-		-- TODO: check use this API for set network nil
 
+		-- Snapshot who owned the assembly BEFORE we hand it to the server for the
+		-- ragdoll, so recovery restores the same controller. This stays agnostic to
+		-- player vs NPC: a player char is on automatic ownership, a brain-owned NPC
+		-- is pinned to its owner client, a plain dummy is server-owned. GetNetworkOwner
+		-- THROWS on automatic ownership, so gate on GetNetworkOwnershipAuto first.
+		local wasAuto = defender_hrp:GetNetworkOwnershipAuto()
+		local previousOwner = if wasAuto then nil else defender_hrp:GetNetworkOwner()
+
+		-- Server simulates the ragdoll authoritatively while it's active.
 		defender_hrp:SetNetworkOwner(nil)
 		context.hitPart:SetNetworkOwner(nil)
 
@@ -187,8 +200,23 @@ function EffectService:Apply(context: effectHitCtx)
 			RagdollService:Untag(defender_humanoid)
 			defender_humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 			defender_humanoid.AutoRotate = true
-			defender_hrp:SetNetworkOwner(nil)
-			context.hitPart:SetNetworkOwner(nil)
+
+			-- Restore ownership to whoever held it pre-ragdoll instead of re-pinning
+			-- to the server: a player goes back to automatic, an NPC back to its
+			-- brain-owner client (otherwise the brain's Humanoid:MoveTo is never
+			-- simulated and the rig stalls on the waypoint timeout). The limb rejoins
+			-- the HRP assembly on GettingUp and follows it, so restoring the HRP is
+			-- enough. If the previous owner disconnected mid-ragdoll, NPCServer's
+			-- PlayerRemoving re-election already re-pinned a new owner — don't clobber it.
+			if wasAuto then
+				pcall(function()
+					defender_hrp:SetNetworkOwnershipAuto()
+				end)
+			elseif previousOwner and previousOwner:IsDescendantOf(Players) then
+				pcall(function()
+					defender_hrp:SetNetworkOwner(previousOwner)
+				end)
+			end
 		end)
 	end
 
@@ -446,6 +474,9 @@ function EffectService:Apply(context: effectHitCtx)
 		local WeaponBinder = BinderProvider:Get("Armed")
 		local weaponEnemy = WeaponBinder:Get(attacker_char)
 		weaponEnemy:increaseDmgCount(context.damage)
+		-- Authoritative per-hit damage feed (LeaderboardService accrues it). Fires
+		-- for every victim, bots included; the consumer filters to real players.
+		EffectService.DamageDealt:Fire(attacker_char, defender_char, context.damage)
 		local countDamage = ReplicatedStorage.Shared.RemoteEvents.countDamage
 		countDamage:FireAllClients({
 			dmg = context.damage,

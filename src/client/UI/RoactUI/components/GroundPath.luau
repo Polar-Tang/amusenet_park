@@ -8,11 +8,20 @@ local Roact = require(ReplicatedStorage.Shared.Roact)
 local Maid = require(ReplicatedStorage.Nevermore.Quenty.maid.Shared.Maid)
 
 local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
+local teamConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.teamConstants)
 
 -- Recompute cadence. The component binds RenderStepped (for a smooth dt clock)
 -- but only re-runs the path every REDRAW_INTERVAL seconds — ComputeAsync is the
 -- expensive call, not the bind.
-local REDRAW_INTERVAL = 0.5
+local REDRAW_INTERVAL = 0.1
+
+-- Pathfinding waypoints sit right on the navmesh (floor level). A flat ground
+-- arrow pivoted exactly there is coincident with the floor — it z-fights / sits
+-- under the geometry and is invisible in-game (yet looks perfect in an exported
+-- folder, where there's no floor to occlude it). Lift each arrow slightly so it
+-- renders above the surface. Bump this if the GroundArrow model's geometry
+-- extends well below its pivot.
+local ARROW_GROUND_OFFSET = Vector3.new(0, 0.5, 0)
 
 --[=[
 	Headless world-space path drawer.
@@ -46,6 +55,9 @@ function GroundPath:init()
 
 	self._character = nil :: Model?
 	self._goal = nil :: BasePart?
+	-- Arrow tint for the active local carrier (their team colour). Resolved when
+	-- the carrier is set; defaults neutral until then.
+	self._arrowColor = teamConstants.DEFAULT_COLOR :: Color3
 
 	-- Drives the REDRAW_INTERVAL gate; seeded high so the first frame after a
 	-- fire draws immediately instead of waiting a full interval.
@@ -93,7 +105,15 @@ function GroundPath._onCarrier(self, carrier, character: Model)
 	if not goal then
 		return
 	end
+
+	-- Tint the trail with the carrier's team colour (crimson / dark blue);
+	-- neutral fallback for a teamless carrier or a team with no palette entry.
+	local team = carrier:GetTeam()
+	self._arrowColor = (team and teamConstants.TEAM_COLORS[team.Name]) or teamConstants.DEFAULT_COLOR
+
+	debug.profilebegin("FlagPathRender")
 	self:_activate(character, goal)
+	debug.profileend()
 end
 
 -- The local carrier dropped the flag (capture / death / despawn → tag removed).
@@ -134,15 +154,15 @@ function GroundPath._activate(self, character: Model, goal: BasePart)
 		return
 	end
 
-	self._sinceRedraw = REDRAW_INTERVAL
+	self._timer = 0
+	self._lastTimer = 0
 
 	self._maid._loop = RunService.RenderStepped:Connect(function(deltaTime: number)
-		self._sinceRedraw += deltaTime
-		if self._sinceRedraw < REDRAW_INTERVAL or self._computing then
-			return
+		self._timer += deltaTime
+		if self._timer - self._lastTimer >= REDRAW_INTERVAL then
+			self._lastTimer = self._timer
+			self:_redraw()
 		end
-		self._sinceRedraw = 0
-		self:_redraw()
 	end)
 end
 
@@ -173,12 +193,13 @@ function GroundPath._redraw(self)
 		return
 	end
 
-	local hrp = character:FindFirstChild("HumanoidRootPart")
-	if not hrp then
+	if not self.hrp then
+		self.hrp = character:FindFirstChild("HumanoidRootPart")
 		return
 	end
 
 	local template = self:_getTemplate()
+
 	if not template then
 		warn("GroundPath: ReplicatedStorage.VFX.GroundArrow is missing")
 		return
@@ -188,9 +209,8 @@ function GroundPath._redraw(self)
 	task.spawn(function()
 		local path = PathfindingService:CreatePath()
 		local ok = pcall(function()
-			path:ComputeAsync((hrp :: BasePart).Position, goal.Position)
+			path:ComputeAsync((self.hrp :: BasePart).Position, goal.Position)
 		end)
-
 		self._computing = false
 
 		-- The target may have changed (new fire / disabled) while we yielded.
@@ -212,7 +232,7 @@ function GroundPath._drawWaypoints(self, waypoints: { PathWaypoint }, goal: Base
 
 	local template = self._template :: Model
 	for index, waypoint in waypoints do
-		local position = waypoint.Position
+		local position = waypoint.Position + ARROW_GROUND_OFFSET
 
 		-- The gotcha: face the *next* waypoint, except the last arrow, which
 		-- faces the goal's position instead.
@@ -230,11 +250,21 @@ function GroundPath._drawWaypoints(self, waypoints: { PathWaypoint }, goal: Base
 		local arrow = template:Clone()
 		-- Coincident points would make CFrame.lookAt throw; place axis-aligned.
 		if (lookTarget - position).Magnitude > 1e-3 then
-			arrow:PivotTo(CFrame.lookAt(position, lookTarget))
+			arrow:PivotTo(CFrame.lookAt(position, lookTarget) * CFrame.Angles(math.rad(90), 0, 0))
 		else
-			arrow:PivotTo(CFrame.new(position))
+			arrow:PivotTo(CFrame.new(position) * CFrame.Angles(math.rad(90), 0, 0))
 		end
+		self:_tintArrow(arrow)
 		arrow.Parent = self._arrowsFolder
+	end
+end
+
+-- Paints every BasePart of an arrow clone with the active carrier's team colour.
+function GroundPath._tintArrow(self, arrow: Model)
+	for _, descendant in arrow:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.Color = self._arrowColor
+		end
 	end
 end
 

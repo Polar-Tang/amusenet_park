@@ -12,6 +12,7 @@ local Constanst = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Share
 local Table = require(ReplicatedStorage.Nevermore.Quenty.table.Shared.Table)
 local weaponTypes = require(ReplicatedStorage.Nevermore.Custom.weapon.src.Server.types.weaponTypes)
 local sharedWeaponTypes = require(ReplicatedStorage.Nevermore.Custom.weapon.src.Shared.types.weaponTypes)
+local weaponConstants = require(ReplicatedStorage.Nevermore.Custom.weapon.src.Shared.weaponConstants)
 
 export type BaseAbility = weaponTypes.BaseAbility
 export type BaseAbilityConstructor = weaponTypes.BaseAbilityConstructor
@@ -183,9 +184,9 @@ local slide_end_fx = function(ctx: sharedWeaponTypes.MovementAbility)
 	end
 end
 
-local SLIDE_INITIAL_SPEED = 40 -- studs / s  (tune to taste)
-local SLIDE_DECEL = 1.3 -- exponential decay constant  (higher = faster stop)
-local SLIDE_MIN_SPEED = 10
+local SLIDE_INITIAL_SPEED = 80 -- studs / s  (tune to taste)
+local SLIDE_DECEL = 1.1 -- exponential decay constant  (higher = faster stop)
+local SLIDE_MIN_SPEED = 50
 local MAX_FORCE = math.huge -- N  — cap so the constraint doesn't fight slopes infinitely
 
 local slide_reset = function(ctx)
@@ -217,39 +218,48 @@ local slide_effect = function(ctx, params)
 	local camera = workspace.CurrentCamera
 	local look = camera.CFrame.LookVector
 
+	-- Camera-forward flattened onto the ground plane.
+	local flatForward = Vector3.new(look.X, 0, look.Z)
+	flatForward = if flatForward.Magnitude > 0 then flatForward.Unit else hrp.CFrame.LookVector
+
+	-- Slide forward on W / backward on S, on EVERY platform: Humanoid.MoveDirection
+	-- is the resolved world-space move intent the default control scripts write —
+	-- keyboard WASD, gamepad, and the mobile thumbstick all populate it, so no
+	-- per-input keycode plumbing (and no separate mobile path) is needed.
+	-- Projecting it onto camera-forward keeps slide a forward/back-only move: a
+	-- pure A/D strafe and a neutral stick fall through to forward, matching the
+	-- original "only W and S are allowed" design.
+	local forwardness = ctx.humanoid.MoveDirection:Dot(flatForward)
+	local slideDir = if forwardness < -0.25 then -flatForward else flatForward
+
 	-- ── Orient character to camera yaw ───────────────────────────────────
+	-- Body keeps facing the camera regardless of slide direction, so a back-slide
+	-- moves the character backward without spinning them around.
 	local camYaw = math.atan2(-look.X, -look.Z)
 	hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, camYaw, 0)
 
 	-- ── Build the LinearVelocity constraint ───────────────────────────────
-	--
-	--   Line + Attachment0: velocity is driven along the attachment's X axis
-	--   (primary axis) in world space.
-	--
-	--   After the yaw snap, hrp.LookVector = camera-forward on XZ.
-	--   In local hrp space that is -Z = (0,0,-1).
-	--   Rotating the attachment -90° around Y maps its X axis to local -Z
-	--   (world-forward). +90° gives world-backward.
-	--
+	--   Vector mode + RelativeTo World drives velocity straight along `slideDir`,
+	--   decoupled from the body's facing — that decoupling is what allows the
+	--   back-slide (Line mode would lock movement to the attachment/body axis).
 	local lv: LinearVelocity = Instance.new("LinearVelocity")
 
-	-- Find-or-create the "LV" attachment on the HRP. This runs client-side
-	-- (slide is a client-only Movement ability), so it can't use the server
-	-- EffectService:ChangeChildren helper — that module returns {} on clients.
+	-- Find-or-create the "LV" attachment on the HRP (just the force-application
+	-- point in Vector/World mode; its axis is irrelevant here, so a leftover
+	-- rotated attachment from the old Line-mode code is harmless). Runs
+	-- client-side (slide is a client-only Movement ability), so it can't use the
+	-- server EffectService:ChangeChildren helper — that returns {} on clients.
 	local a0: Attachment? = hrp:FindFirstChild("LV") :: Attachment?
 	if not a0 then
 		local att: Attachment = Instance.new("Attachment")
-		att.Axis = Vector3.new(-0, 0, -1)
-		att.SecondaryAxis = Vector3.new(0, 1, 0)
-		att.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(90), 0)
 		att.Name = "LV"
 		att.Parent = hrp
 		a0 = att
 	end
 	lv.Attachment0 = a0
-	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Line
-	lv.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
-	lv.LineVelocity = SLIDE_INITIAL_SPEED
+	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+	lv.RelativeTo = Enum.ActuatorRelativeTo.World
+	lv.VectorVelocity = slideDir * SLIDE_INITIAL_SPEED
 	lv.MaxForce = MAX_FORCE
 	lv.Parent = hrp
 
@@ -264,6 +274,9 @@ local slide_effect = function(ctx, params)
 	--   surface or network conditions.
 	slide_end_fx(ctx)
 
+	-- Desaceleration is not fun
+	--[[
+	]]
 	ctx._slideConnection = RunService.Heartbeat:Connect(function(dt)
 		if not ctx._slideConstraint or not ctx._slideConstraint.Parent then
 			-- Constraint was destroyed externally (e.g. character reset)
@@ -273,11 +286,13 @@ local slide_effect = function(ctx, params)
 			return
 		end
 
-		local newSpeed = ctx._slideConstraint.LineVelocity * math.exp(-SLIDE_DECEL * dt)
+		local velocity = ctx._slideConstraint.VectorVelocity
+		local newSpeed = velocity.Magnitude * math.exp(-SLIDE_DECEL * dt)
 		if newSpeed <= SLIDE_MIN_SPEED then
 			slide_reset(ctx)
 		else
-			ctx._slideConstraint.LineVelocity = newSpeed
+			-- Keep the established direction; only scale magnitude down.
+			ctx._slideConstraint.VectorVelocity = velocity.Unit * newSpeed
 		end
 	end)
 end
@@ -800,6 +815,17 @@ do
 	}
 
 	info["grenade"] = grenade
+end
+
+-- Every strategy MUST be a declared WeaponId, so the strict type and the loadout
+-- system can never silently fall behind a newly added weapon. A nil here is a
+-- missing `weaponConstants.WEAPON_IDS` entry (and a missing arm of the `WeaponId`
+-- union), not a runtime state — fail loud at load.
+for weaponId in info do
+	assert(
+		weaponConstants.WEAPON_IDS[weaponId],
+		`CombatConfig: strategy "{weaponId}" is missing from weaponConstants.WEAPON_IDS — add it there and to the WeaponId type`
+	)
 end
 
 module.info = Table.errorOnNilIndex(info)

@@ -154,6 +154,16 @@ function AnimationHandler:LoadAnimation(state: boolean, animaName: string, isPre
 	-- Ensure the descriptor exists *before* dereferencing it. After a
 	-- `_ClearAnimation` the descriptor entry is fully gone; this re-creates it.
 	self:_ensurePreload(animaName)
+	-- Unregistered name: `_ensurePreload` -> `_initDescriptior` bails when
+	-- `self.animations[animaName]` is nil and leaves no descriptor. No-op here
+	-- instead of asserting through `_getDescriptor`, so a caller asking for an
+	-- animation this rig's set never declared (e.g. EffectService's "stuned" on
+	-- a server NPC handler) degrades to "no animation" rather than throwing and
+	-- aborting the caller's pipeline mid-apply (the stun WalkSpeed never got set).
+	if not self.animationDescriptors[animaName] then
+		warn(`AnimationHandler:LoadAnimation -- "{animaName}" is not a registered animation; skipping`)
+		return nil
+	end
 	local current_desc = self:_getDescriptor(animaName)
 	local animaTionTrack: AnimationTrack = current_desc.AnimationTrack
 
@@ -219,6 +229,13 @@ function AnimationHandler:_ensurePreload(animaName)
 		return
 	end
 	self:_initDescriptior(animaName)
+
+	-- `_initDescriptior` bails (no descriptor) when the name isn't in
+	-- `self.animations`. Don't dereference a nil descriptor below -- let the
+	-- caller (`LoadAnimation`) see the missing descriptor and no-op.
+	if not self.animationDescriptors[animaName] then
+		return
+	end
 
 	-- Load the animation and declare it
 	do

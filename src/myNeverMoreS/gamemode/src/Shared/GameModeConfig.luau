@@ -65,7 +65,7 @@ local GameModeConfig: { [string]: gameModeTypes.ModeConfig } = {
 		teams = nil, -- FFA: everyone teamless => resolveTeam nil => everyone can hurt everyone
 		respawnEnabled = false, -- one life: ServiceRoot denies RespawnRequest
 		equipDefaultWeapon = true, -- still want the fist on spawn
-		giveLoadout = false, -- but NOT the ServerStorage weapons loadout
+		giveLoadout = true, -- profile loadout from TeleportData (LoadoutService)
 	},
 }
 

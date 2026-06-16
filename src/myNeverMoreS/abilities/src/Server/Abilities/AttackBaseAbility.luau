@@ -2,6 +2,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local EffectTypes = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.EffectTypes)
 local hitTouchTemplate = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.hitTouchTemplate)
+local canPlayerDamageHumanoid =
+	require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.canPlayerDamageHumanoid)
+local getCharacterActor = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getCharacterActor)
 local weaponTypes = require(ReplicatedStorage.Nevermore.Custom.weapon.src.Server.types.weaponTypes)
 
 export type AttackBaseAbility = weaponTypes.AttackBaseAbility
@@ -24,7 +27,11 @@ function AttackBaseAbility.new(config: construnctor)
 	local self = setmetatable(BaseAbility.new(config), AttackBaseAbility)
 	self._lastAttackID = 0
 	self.attackType = config.attackType
-	self.player = Players:GetPlayerFromCharacter(self.character)
+	-- Real Player when one owns the character; the Player-shaped stand-in for NPC
+	-- rigs, so the friendly-fire gate in PromiseHit works for both (matches
+	-- RangeAttack). Players:GetPlayerFromCharacter would be nil for NPCs and make
+	-- canPlayerDamageHumanoid NPE on player.Character.
+	self.player = getCharacterActor(self.character)
 
 	return self :: AttackBaseAbility
 end
@@ -135,6 +142,14 @@ function AttackBaseAbility.PromiseHit(
 				})
 			end
 			for _, hitData in ipairs(hits) do
+				-- Friendly-fire gate (no team killing) — same rule the gun path
+				-- enforces through validateTag. Skip a target the attacker can't
+				-- damage so the client can't report a teammate hit. A teamless
+				-- attacker/defender always passes (non-team modes untouched).
+				local targetHumanoid = hitData.target and hitData.target:FindFirstChildOfClass("Humanoid")
+				if targetHumanoid and not canPlayerDamageHumanoid(self.player, targetHumanoid) then
+					continue
+				end
 				-- if this resolve by the client the hitTouch is activated, it calls weapon:OnIncomming attack, and that uses EffectService:Apply(hit_effect_data)
 				hitTouchTemplate(hitEffect, hitData.target, hitData.hitPart, self._serviceBag)
 			end

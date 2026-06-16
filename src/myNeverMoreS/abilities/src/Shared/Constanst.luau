@@ -117,5 +117,6 @@ module.NPC_TAG = "NPC"
 -- Tag carried by the workspace.goal_* parts NPCs patrol between.
 module.NPC_GOALS_TAG = "NPC_goals"
 module.MATCH_FOUND_TOPIC= "MatchFound"
+module.LOBBY_PLACEID = 82965737458659
 
 return module

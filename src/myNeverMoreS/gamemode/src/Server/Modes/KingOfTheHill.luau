@@ -21,11 +21,14 @@
 ]=]
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
+local LeaderboardConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.LeaderboardConstants)
+local LeaderboardService = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.LeaderboardService)
 local TeamMode = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.TeamMode)
 local ZoneController = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.ZoneController)
 local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.gameModeTypes)
@@ -88,6 +91,18 @@ function KingOfTheHill._tickControl(self: KingOfTheHill)
 
 	if controller then
 		self._deps.addScore(controller, GameModeConstants.KOTH_POINTS_PER_TICK)
+	end
+
+	-- Personal leaderboard credit: every real player standing in the hill banks
+	-- one hill_time unit per tick, regardless of control (it measures presence,
+	-- not who scored). With the default 1s cadence this reads as seconds in hill.
+	-- Bots resolve nil and are skipped.
+	local leaderboard = self._deps.serviceBag:GetService(LeaderboardService)
+	for _, occupant in self._zone:GetOccupants() do
+		local player = Players:GetPlayerFromCharacter(occupant)
+		if player then
+			leaderboard:AddStat(player, LeaderboardConstants.STAT_HILL_TIME, 1)
+		end
 	end
 end
 

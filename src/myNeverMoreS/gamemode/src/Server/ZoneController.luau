@@ -148,6 +148,36 @@ function ZoneController.GetTaggedOccupants(self: ZoneController, tag: string): {
 	return result
 end
 
+--[=[
+	Every living character Model inside the zone, untagged and ungrouped. KOTH
+	reads it to credit per-player hill time (each occupant that resolves to a real
+	player banks a tick). Like GetTaggedOccupants this isn't throttled — the
+	caller (the KOTH tick) already runs on its own cadence.
+]=]
+function ZoneController.GetOccupants(self: ZoneController): { Model }
+	local parts = Workspace:GetPartBoundsInBox(self._zone.CFrame, self._zone.Size, self._params)
+
+	local seen: { [Model]: true } = {}
+	local result: { Model } = {}
+
+	for _, part in parts do
+		local model = part:FindFirstAncestorOfClass("Model")
+		if not model or seen[model] then
+			continue
+		end
+		seen[model] = true
+
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		if not humanoid or humanoid.Health <= 0 then
+			continue
+		end
+
+		table.insert(result, model)
+	end
+
+	return result
+end
+
 function ZoneController.Destroy(self: ZoneController)
 	-- Clear the controller readout so the hill stops showing an owner once the
 	-- match tears down.

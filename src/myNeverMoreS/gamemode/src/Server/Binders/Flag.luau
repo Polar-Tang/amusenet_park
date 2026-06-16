@@ -68,7 +68,6 @@ function Flag._createProximityPrompt(self)
 	self._maid:GiveTask(prompt.Triggered:Connect(function(player: Player)
 		self:_onTriggered(player)
 	end))
-	print("prompt ", prompt)
 end
 
 function Flag.GetTeam(self): gameModeTypes.TeamId?

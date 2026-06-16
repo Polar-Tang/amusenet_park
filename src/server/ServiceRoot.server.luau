@@ -56,6 +56,9 @@ end)
 local QuestHandler = require(SSS.Server.Quests.QuestHandler)
 ---------- GAME MODE ----------
 local GameModeService = require(RS.Nevermore.Custom.gamemode.src.Server.GameModeService)
+-- Per-player scoreboard (ReplicatedStorage folder of IntValues). Self-driven:
+-- subscribes to EffectService + Players signals in its own Start.
+local LeaderboardService = require(RS.Nevermore.Custom.gamemode.src.Server.LeaderboardService)
 -- A ServiceBag service, NOT a free-standing Script: its require chain reaches
 -- loader-dependent Quenty modules, which only load after bootstrapGame above.
 local MatchListener = require(SSS.Server.NPC.MatchListener)
@@ -64,6 +67,7 @@ local MatchListener = require(SSS.Server.NPC.MatchListener)
 serviceBag:GetService(AttacksBinders)
 serviceBag:GetService(QuestHandler)
 serviceBag:GetService(GameModeService)
+serviceBag:GetService(LeaderboardService)
 serviceBag:GetService(MatchListener)
 serviceBag:Init()
 
@@ -148,6 +152,14 @@ if not questsStoreOk then
 	warn("[ServiceRoot] - DataStore unavailable, quests will not persist: ", questsStore)
 	questsStore = nil
 end
+
+type MatchPayload = {
+	matchId: string,
+	botCount: number,
+	mode: string,
+	questsByUserId: { [string]: questTypes.QuestsSaveData },
+}
+
 -- Match-aware quest load. A player teleported in from the lobby carries the
 -- whole match's quest snapshot in TeleportData.questsByUserId (the lobby is
 -- the only place that re-rolls/refreshes due quests — see PlayerQuests
@@ -156,10 +168,18 @@ end
 local function loadSavedQuests(player: Player): questTypes.QuestsSaveData?
 	local joinOk, joinData = pcall(player.GetJoinData, player)
 	if joinOk and type(joinData) == "table" then
-		local teleportData = joinData.TeleportData
+		local teleportData = joinData.TeleportData :: MatchPayload
 		if type(teleportData) == "table" and type(teleportData.questsByUserId) == "table" then
-			local record = teleportData.questsByUserId[tostring(player.UserId)]
+			-- The lobby packs each player's GetSaveData() under their userId, so a
+			-- record is a flat { [questId] = QuestProgress } map (QuestsSaveData).
+			-- It crosses TeleportData as `any`; assert the cast at this boundary.
+			local record = teleportData.questsByUserId[tostring(player.UserId)] :: questTypes.QuestsSaveData?
 			if record then
+				for questId, progress in pairs(record.quests) do
+					print(
+						`[ServiceRoot] Loaded quest {questId}: {progress}`
+					)
+				end
 				return record
 			end
 		end

@@ -19,10 +19,17 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Teams = game:GetService("Teams")
+local TeleportService = game:GetService("TeleportService")
 local Workspace = game:GetService("Workspace")
 
 local Maid = require(ReplicatedStorage.Nevermore.Quenty.maid.Shared.Maid)
+
+-- Server-only PlayerBinder of per-player quest state. Reached through the bag
+-- (registered in ServiceRoot before Init) so the Leave handler can snapshot a
+-- leaving player's progress into TeleportData — same module EffectService uses.
+local QuestHandler = require(ServerScriptService.Server.Quests.QuestHandler)
 
 local EffectService = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.EffectService)
 local GameModeConfig = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConfig)
@@ -34,6 +41,7 @@ local LastManStanding = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.
 local TeamDeathmatch = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.TeamDeathmatch)
 
 local MatchStateRemote: RemoteEvent = ReplicatedStorage.Shared.RemoteEvents.MatchState
+local LeaveMatchRemote: RemoteEvent = ReplicatedStorage.Shared.RemoteEvents.LeaveMatch
 
 -- Adding a mode = one entry here + one ModeConfig entry + the strategy file.
 -- Each value is a GameMode class (its `.new(config)` builds the strategy).
@@ -73,6 +81,42 @@ local function broadcastScoreState()
 	MatchStateRemote:FireAllClients(scoreState)
 end
 
+--[=[
+	Sends one player back to the matchmaking lobby (LOBBY_PLACE_ID), carrying
+	their live quest progress as TeleportData so the hop doesn't lose a match's
+	worth of progress — keyed by userId under `questsByUserId` so the lobby reads
+	it with the exact same reader it runs for the inbound lobby→match snapshot
+	(ServiceRoot.loadSavedQuests). Spam-safe (TeleportService dedupes an in-flight
+	teleport for the same player), so both call sites — the Leave button remote and
+	the post-match auto-return sweep — can call it freely. With LOBBY_PLACE_ID unset
+	(0, e.g. Studio) it's a logged no-op rather than a teleport into a void place.
+]=]
+function GameModeService.TeleportToLobby(_self: any, player: Player)
+	local placeId = GameModeConstants.LOBBY_PLACE_ID
+	if placeId <= 0 then
+		warn(`[GameModeService] TeleportToLobby for {player.Name} but LOBBY_PLACE_ID is unset — ignoring`)
+		return
+	end
+
+	local teleportData: gameModeTypes.LeaveTeleportData = {
+		questsByUserId = {},
+	}
+	local playerQuests = serviceBag:GetService(QuestHandler):GetHandler(player)
+	if playerQuests then
+		teleportData.questsByUserId[tostring(player.UserId)] = playerQuests:GetSaveData()
+	end
+
+	local options = Instance.new("TeleportOptions")
+	options:SetTeleportData(teleportData)
+
+	local ok, err = pcall(function()
+		TeleportService:Teleport(placeId, player, options)
+	end)
+	if not ok then
+		warn(`[GameModeService] lobby teleport failed for {player.Name}: {err}`)
+	end
+end
+
 local function endMatch(winner: gameModeTypes.TeamId?)
 	if scoreState.phase ~= "active" then
 		return
@@ -87,6 +131,14 @@ local function endMatch(winner: gameModeTypes.TeamId?)
 	Workspace:SetAttribute(GameModeConstants.MATCH_OVER_ATTRIBUTE, true)
 	broadcastScoreState()
 
+	-- Single funnel for every win path → the active strategy's inherited
+	-- BaseMode.BroadcastResults fires the WinScreen remote (the results screen
+	-- reads the already-replicated Leaderboard folder; this only carries the
+	-- winner). Done before the deferred Stop so it's sent while the mode is live.
+	if activeMode then
+		activeMode:BroadcastResults(scoreState.winner)
+	end
+
 	-- Deferred: the winning kill reaches here synchronously from INSIDE
 	-- EffectService.Apply (CharacterDied → onKill → addScore), and Stop
 	-- destroys NPC rigs — possibly the very defender whose damage pipeline
@@ -99,6 +151,17 @@ local function endMatch(winner: gameModeTypes.TeamId?)
 		-- lobby owns server lifecycle from here (no kicks): the reserved
 		-- server dies on its own once players leave.
 		matchMaid:DoCleaning()
+	end)
+
+	-- Fallback return-to-lobby: once the results screen has been up long enough,
+	-- sweep everyone still here back to the lobby (the Leave button is the manual
+	-- shortcut; this guarantees a match server never strands players on the end
+	-- screen). NOT on matchMaid — that's torn down above; this must outlive it.
+	-- Per-player so each carries its own quest snapshot.
+	task.delay(GameModeConstants.POST_MATCH_LOBBY_DELAY, function()
+		for _, player in Players:GetPlayers() do
+			GameModeService:TeleportToLobby(player)
+		end
 	end)
 end
 
@@ -158,7 +221,7 @@ local function onPlayerAdded(player: Player)
 	end
 end
 
-local function startMatchNow(payload: gameModeTypes.MatchPayload)
+function GameModeService.StartMatchNow(_self: any, payload: gameModeTypes.MatchPayload)
 	local modeId = payload.mode or GameModeConstants.DEFAULT_MODE
 	local config = GameModeConfig[modeId]
 	if not config or not MODE_REGISTRY[modeId] then
@@ -179,7 +242,9 @@ local function startMatchNow(payload: gameModeTypes.MatchPayload)
 		getScoreState = function()
 			return scoreState
 		end,
-		endMatch = endMatch,
+		endMatch = function()
+			endMatch()
+		end,
 	}
 
 	local newActiveMode = MODE_REGISTRY[modeId].new(config)
@@ -227,7 +292,7 @@ function GameModeService.StartMatch(_self: any, payload: gameModeTypes.MatchPayl
 		return
 	end
 	latched = true
-	startMatchNow(payload)
+	GameModeService:StartMatchNow(payload)
 end
 
 -- ServiceRoot gate for RemoteEvents.RespawnRequest (LMS turns this off; a
@@ -260,6 +325,11 @@ function GameModeService.Start(_self: any)
 	-- broadcasts land before the component connected OnClientEvent).
 	MatchStateRemote.OnServerEvent:Connect(function(player)
 		MatchStateRemote:FireClient(player, scoreState)
+	end)
+
+	-- Win-screen "Leave" button: the manual shortcut into the shared return path.
+	LeaveMatchRemote.OnServerEvent:Connect(function(player)
+		GameModeService:TeleportToLobby(player)
 	end)
 
 	if pendingPayload then

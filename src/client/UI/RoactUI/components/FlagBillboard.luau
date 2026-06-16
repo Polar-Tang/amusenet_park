@@ -5,6 +5,7 @@ local Roact = require(ReplicatedStorage.Shared.Roact)
 local Maid = require(ReplicatedStorage.Nevermore.Quenty.maid.Shared.Maid)
 
 local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
+local assets = require(ReplicatedStorage.Shared.Public.assets)
 
 --[=[
 	Over-head "carrying the flag" marker. The server (Flag binder) authors the
@@ -32,11 +33,20 @@ function FlagBillboard:init()
 	-- its billboard instead of stacking a second one.
 	self._idByChar = {}
 
-	-- state.carriers: id -> Model, the live set Roact renders one billboard each.
+	-- state.carriers: id -> { character, image }, the live set Roact renders one
+	-- billboard each. `image` is the per-team icon resolved at add time.
 	self:setState({ carriers = {} })
 end
 
-function FlagBillboard._addCarrier(self, character: Model)
+-- The overhead icon for a carrier's team. Per-team art lives in `assets`
+-- (keyed by team id); a teamless carrier or a team with no art falls back to
+-- the roulette pointer placeholder.
+local function carrierImage(carrier): string
+	local team = carrier:GetTeam()
+	return (team and assets.flag_carrier[team.Name]) or assets.spin_roullete.pointer
+end
+
+function FlagBillboard._addCarrier(self, carrier, character: Model)
 	if self._idByChar[character] then
 		return
 	end
@@ -44,6 +54,8 @@ function FlagBillboard._addCarrier(self, character: Model)
 	self._nextId += 1
 	local id = tostring(self._nextId)
 	self._idByChar[character] = id
+
+	local image = carrierImage(carrier)
 
 	-- Auto-unmount when the adornee leaves the world (parent goes nil).
 	self._maid[id] = character.AncestryChanged:Connect(function(_, parent: Instance?)
@@ -54,7 +66,7 @@ function FlagBillboard._addCarrier(self, character: Model)
 
 	self:setState(function(state)
 		local carriers = table.clone(state.carriers)
-		carriers[id] = character
+		carriers[id] = { character = character, image = image }
 		return { carriers = carriers }
 	end)
 end
@@ -85,14 +97,14 @@ function FlagBillboard:didMount()
 	-- instantiation), so connect the signals AND sweep GetAll for whoever is
 	-- already bound. _addCarrier is idempotent, so the sweep and a signal reaching
 	-- the same carrier is safe. The signal payload is (class, instance).
-	self._maid:GiveTask(binder:GetClassAddedSignal():Connect(function(_class, character: Model)
-		self:_addCarrier(character)
+	self._maid:GiveTask(binder:GetClassAddedSignal():Connect(function(class, character: Model)
+		self:_addCarrier(class, character)
 	end))
 	self._maid:GiveTask(binder:GetClassRemovingSignal():Connect(function(_class, character: Model)
 		self:_removeCarrier(character)
 	end))
 	for _, carrier in binder:GetAll() do
-		self:_addCarrier(carrier:GetCharacter())
+		self:_addCarrier(carrier, carrier:GetCharacter())
 	end
 end
 
@@ -109,8 +121,8 @@ end
 function FlagBillboard:render()
 	local billboards: { [string]: any } = {}
 
-	for id, character in self.state.carriers do
-		local adornee = adorneePart(character)
+	for id, entry in self.state.carriers do
+		local adornee = adorneePart(entry.character)
 		if not adornee then
 			continue
 		end
@@ -125,7 +137,7 @@ function FlagBillboard:render()
 			Icon = Roact.createElement("ImageLabel", {
 				Size = UDim2.fromScale(1, 1),
 				BackgroundTransparency = 1,
-				Image = GameModeConstants.CTF_BILLBOARD_IMAGE,
+				Image = entry.image,
 			}),
 		})
 	end

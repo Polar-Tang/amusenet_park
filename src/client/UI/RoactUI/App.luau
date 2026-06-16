@@ -8,6 +8,7 @@ local MatchHud = require(script.Parent.components.MatchHud)
 local MobileButtons = require(script.Parent.components.MobileButtons)
 -- local SpinRoulette = require(script.Parent.components.SpinRoulette)
 local QuestsList = require(script.Parent.components.QuestsList)
+local WinScreen = require(script.Parent.components.WinScreen)
 local Roact = require(ReplicatedStorage.Shared.Roact)
 
 local CrosshairProvider = require(script.Parent.Context.CrosshairContext.CrosshairProvider)
@@ -41,6 +42,11 @@ function App:render()
 		AmmoCounter = Roact.createElement(AmmoCounter),
 		DeathScreen = Roact.createElement(DeathScreen, {
 			cameraMediator = self.props.cameraMediator,
+		}),
+		-- Results table at match end. layer = 20 keeps it above the death
+		-- overlay (ZIndex 10/11), so the win screen wins any overlap.
+		WinScreen = Roact.createElement(WinScreen, {
+			layer = 20,
 		}),
 		-- SpinRoulette = Roact.createElement(SpinRoulette),
 	})

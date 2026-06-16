@@ -28,4 +28,12 @@ module["spin_roullete"] = {
 	["pointer"] = "rbxassetid://6034287551",
 }
 
+-- Overhead "carrying the flag" icon, one per team id (Crimson / Azure). The
+-- FlagBillboard component picks by the carrier's team. PLACEHOLDER ids (reusing
+-- the roulette pointer) — swap each for the real per-team art when it exists.
+module["flag_carrier"] = {
+	["Crimson"] = "rbxassetid://6034287551",
+	["Azure"] = "rbxassetid://6034287551",
+}
+
 return module

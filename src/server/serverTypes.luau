@@ -12,4 +12,11 @@ export type PlayerBinder<handler> = {
 	RemovePlayer: (self: PlayerBinder<handler>, player: Player) -> (),
 }
 
+export type MatchPayload = {
+	matchId: string,
+	botCount: number,
+	mode: string,
+	questsByUserId: { [string]: any },
+}
+
 return {}

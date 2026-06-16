@@ -81,8 +81,7 @@ function SmoothShiftLock:CharacterAdded()
 	self.Camera = WorkspaceService.CurrentCamera
 	--// Setup
 	self.connectionsMaid = Maid.new()
-	self.camOffsetSpring = Spring.new(Vector3.new(0, 0, 0))
-	self.camOffsetSpring.Damper = config.TRANSITION_SPRING_DAMPER
+	
 
 	--// Bindables
 	self.connectionsMaid:GiveTask(ToggleEvent.OnClientEvent:Connect(function(toggle: boolean)
@@ -138,17 +137,6 @@ function SmoothShiftLock:SetMouseIcon(enable: boolean)
 	UserInputService.MouseIcon = (enable and config.LOCKED_MOUSE_ICON :: string) or ""
 end
 
---// Tween locked camera offset position
-function SmoothShiftLock:TransitionLockOffset(enable: boolean)
-	if enable then
-		self.camOffsetSpring.Speed = config.CAMERA_TRANSITION_IN_SPEED
-		self.camOffsetSpring.Target = config.LOCKED_CAMERA_OFFSET
-	else
-		self.camOffsetSpring.Speed = config.CAMERA_TRANSITION_OUT_SPEED
-		self.camOffsetSpring.Target = Vector3.new(0, 0, 0)
-	end
-end
-
 --// Toggle shift lock
 function SmoothShiftLock:ToggleShiftLock(enable: boolean)
 	assert(typeof(enable) == typeof(false), "Enable value is not a boolean.")
@@ -156,7 +144,6 @@ function SmoothShiftLock:ToggleShiftLock(enable: boolean)
 
 	self:SetMouseState(ENABLED)
 	self:SetMouseIcon(ENABLED)
-	self:TransitionLockOffset(ENABLED)
 
 	local cameraService = self.CameraService
 

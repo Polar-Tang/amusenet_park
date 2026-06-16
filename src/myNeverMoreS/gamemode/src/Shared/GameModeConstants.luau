@@ -9,7 +9,7 @@ local GameModeConstants = {}
 
 -- Mode picked when no lobby payload ever arrives (Studio playtests,
 -- direct-join servers). Must be a key of GameModeConfig.
-GameModeConstants.DEFAULT_MODE = "ctf"--"tdm"
+GameModeConstants.DEFAULT_MODE = "lms"--"tdm"
 
 -- String team name set on NPC rigs (players carry their team on player.Team;
 -- a rig has no Player, so the attribute is its replicated team identity).
@@ -24,14 +24,27 @@ GameModeConstants.MATCH_OVER_ATTRIBUTE = "MatchOver"
 GameModeConstants.STUDIO_FALLBACK_SECONDS = 5
 GameModeConstants.STUDIO_FALLBACK_BOT_COUNT = 4
 
+-- Where the win-screen "Leave" button teleports a player back to. This reserved
+-- server hosts one match; leaving means returning to the matchmaking lobby
+-- place. Set this to the lobby's PlaceId; 0 leaves the handler a logged no-op
+-- (Studio / unconfigured) instead of teleporting into the void.
+GameModeConstants.LOBBY_PLACE_ID = 82965737458659
+
+-- Seconds the results (win) screen stays up before the server auto-sends every
+-- remaining player back to the lobby. The Leave button is the manual shortcut;
+-- this is the fallback so a match server never strands players on the end screen.
+GameModeConstants.POST_MATCH_LOBBY_DELAY = 45
+
 -- Delay before a dead bot is replaced on the same team (TDM keeps teams full).
 GameModeConstants.NPC_RESPAWN_DELAY = 5
 
--- ServerStorage folder of Tool templates a mode hands out on spawn (ModeConfig
--- `giveLoadout`). This REPLACES StarterPack: the engine copies StarterPack into
--- every player's Backpack on every spawn regardless of mode, so move the weapon
--- Tools into ServerStorage.<this folder> and leave StarterPack empty — that lets
--- a mode like LMS opt out (giveLoadout = false) and keep players on the fist.
+-- ServerStorage folder of Tool templates the loadout draws from (ModeConfig
+-- `giveLoadout`). Each Tool's Name MUST be a weaponConstants weapon id (gun /
+-- ak-47 / grenade) so LoadoutService can look it up by the profile id. This
+-- REPLACES StarterPack: StarterPack is global (copied into every player's Backpack
+-- regardless of mode/profile), so move the weapon Tools here and leave StarterPack
+-- empty — LoadoutService then hands each player only their profile weapons via the
+-- per-player StarterGear + Backpack.
 GameModeConstants.LOADOUT_FOLDER = "weapons"
 
 -- KOTH: the hill. Tag exactly one BasePart in the map with this; the mode
@@ -71,6 +84,5 @@ GameModeConstants.CTF_POINTS_PER_CAPTURE = 1
 GameModeConstants.CTF_SCAN_INTERVAL = 0.5
 GameModeConstants.CTF_TICK_INTERVAL = 0.5
 -- FlagBillboard placeholder art — swap for the real "carrying the flag" icon.
-GameModeConstants.CTF_BILLBOARD_IMAGE = "rbxassetid://0"
 
 return GameModeConstants

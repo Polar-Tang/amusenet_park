@@ -11,6 +11,10 @@
 	and any per-mode world objects (future zone/flag binders).
 ]=]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local questTypes = require(ReplicatedStorage.Shared.Quests.questTypes)
+
 export type TeamId = string
 
 export type TeamSpec = {
@@ -28,9 +32,11 @@ export type ModeConfig = {
 	teams: { TeamSpec }?, -- nil => non-team mode (LMS)
 	respawnEnabled: boolean, -- false => ServiceRoot denies RespawnRequest (LMS)
 	equipDefaultWeapon: boolean, -- false => no fist on spawn
-	-- true => clone ServerStorage.weapons into every real player's Backpack on
-	-- spawn (replaces StarterPack). LMS sets this false: survivors carry only the
-	-- default fist (equipDefaultWeapon stays true), never the gun loadout.
+	-- true => hand every real player their PROFILE loadout (the weapons named in
+	-- their TeleportData, or the full arsenal on a direct join) out of
+	-- ServerStorage into StarterGear + Backpack — see LoadoutService. Replaces
+	-- StarterPack. The default fist is never part of a loadout (equipDefaultWeapon
+	-- governs it). false => no loadout Tools at all (fist only).
 	giveLoadout: boolean,
 }
 
@@ -59,6 +65,17 @@ export type MatchPayload = {
 	mode: string?,
 	botCount: number?,
 	matchId: string?,
+}
+
+-- TeleportData the win-screen "Leave" button carries back to the lobby place
+-- (GameModeService's LeaveMatch handler builds it, TeleportService delivers it).
+-- It mirrors the INBOUND match snapshot shape on purpose: ServiceRoot.loadSavedQuests
+-- reads `questsByUserId[tostring(player.UserId)]` to seed a teleported-in player's
+-- quests, so packing the leaver's live progress under the same key lets the lobby
+-- persist it with the exact reader it already runs for the lobby→match hop — one
+-- flat { [questId]: QuestProgress } record (QuestsSaveData) per userId.
+export type LeaveTeleportData = {
+	questsByUserId: { [string]: questTypes.QuestsSaveData },
 }
 
 export type MatchPhase = "waiting" | "active" | "ended"
@@ -104,6 +121,9 @@ export type GameMode = {
 	onPlayerRemoving: (self: GameMode, player: Player) -> (),
 	onCharacterAdded: (self: GameMode, char: Model, player: Player?) -> (),
 	onKill: (self: GameMode, attackerChar: Model, defenderChar: Model) -> (),
+	-- End-of-match results broadcast (fires the WinScreen remote). Inherited from
+	-- BaseMode; GameModeService.endMatch calls it on the active strategy.
+	BroadcastResults: (self: GameMode, winner: TeamId?) -> (),
 	Destroy: (self: GameMode) -> (),
 }
 

@@ -30,6 +30,7 @@ CarrierClient.__index = CarrierClient
 export type CarrierClient = typeof(setmetatable(
 	{} :: {
 		_character: Model,
+		_team: Team?,
 		_goal: BasePart?,
 	},
 	CarrierClient
@@ -41,6 +42,7 @@ function CarrierClient.new(character: Model, _serviceBag: any?): CarrierClient
 	local self = setmetatable({}, CarrierClient)
 
 	self._character = character
+	self._team = nil :: Team?
 	self._goal = nil :: BasePart?
 
 	return self
@@ -48,6 +50,19 @@ end
 
 function CarrierClient.GetCharacter(self: CarrierClient): Model
 	return self._character
+end
+
+--[=[
+	The carrier's own team, by the one rule the whole combat/mode stack shares
+	(resolveTeam). Cached: a carrier's team can't change mid-carry. Returns nil
+	for a teamless carrier — consumers fall back to a neutral colour / icon.
+]=]
+function CarrierClient.GetTeam(self: CarrierClient): Team?
+	if self._team then
+		return self._team
+	end
+	self._team = resolveTeam(self._character, getCharacterActor(self._character))
+	return self._team
 end
 
 --[=[
@@ -62,7 +77,7 @@ function CarrierClient.GetGoal(self: CarrierClient): BasePart?
 		return self._goal
 	end
 
-	local team = resolveTeam(self._character, getCharacterActor(self._character))
+	local team = self:GetTeam()
 	if not team then
 		return nil
 	end

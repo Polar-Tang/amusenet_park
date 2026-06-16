@@ -12,10 +12,10 @@
 	    the pre-gamemode neutral behavior, already in resolveTeam.
 	  * No respawn (config.respawnEnabled = false): ServiceRoot denies
 	    RespawnRequest, so a death is an elimination.
-	  * No weapons loadout (config.giveLoadout = false): players keep the default
-	    fist (equipDefaultWeapon stays true) but are NOT handed the ServerStorage
-	    weapons the team modes get — so onCharacterAdded here deliberately does not
-	    chain BaseMode.onCharacterAdded.
+	  * Profile loadout (config.giveLoadout = true): players are handed the weapons
+	    named by their TeleportData profile (cloned out of ServerStorage by
+	    LoadoutService), on top of the default fist (equipDefaultWeapon stays true).
+	    onCharacterAdded chains BaseMode.onCharacterAdded to drive that loadout.
 
 	Win condition. GameModeService owns the timer and the score cap, but an
 	elimination win isn't score-shaped, so LMS calls deps.endMatch directly:
@@ -27,9 +27,12 @@
 	    draw. The score cap (config.targetScore) is parked out of reach so this
 	    tally never ends the round early.
 
-	Bots are FFA fodder: spawned teamless via NpcSpawner, they fight and can
-	eliminate players but can never win — only real players are tracked for the
-	last-standing check. One life means no respawn wiring; Stop despawns them.
+	Bots count as combatants: spawned teamless via NpcSpawner, they fight, can
+	eliminate players, and are tracked in the live set exactly like a real player
+	— so an all-bot round still resolves (the last rig standing wins) instead of
+	hanging forever. Only real players bank kills for the time-up tally (a bot has
+	no ScoreState row), but for the last-standing check a bot is just another life.
+	One life means no respawn wiring; Stop despawns them.
 ]=]
 
 local CollectionService = game:GetService("CollectionService")
@@ -40,6 +43,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
 local BaseMode = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.BaseMode)
 local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.gameModeTypes)
+local Maid = require(ReplicatedStorage.Shared.Animations.Utils.Maid)
 
 local NpcSpawner = require(ServerScriptService.Server.NPC.NpcSpawner)
 
@@ -51,15 +55,18 @@ LastManStanding.__index = LastManStanding
 -- the bot rigs.
 export type LastManStanding = typeof(setmetatable(
 	{} :: {
-		-- player -> true while alive. One life, so a key is removed on death and
-		-- never re-added; the live set IS the round's remaining survivors.
-		_alive: { [Player]: boolean },
+		-- combatant Instance (Player for a human, rig Model for a bot) -> the
+		-- display name shown on the HUD if they win. One life, so a key is removed
+		-- on death and never re-added; the live set IS the round's survivors, bots
+		-- included, so an all-bot round still resolves.
+		_alive: { [Instance]: string },
 		_aliveCount: number,
 		-- Arms the elimination win only after the round has been a contest (>= 2
 		-- alive): without it a solo Studio playtest would "win" instantly.
 		_armed: boolean,
 		-- FFA bot rigs, despawned at Stop (no respawn in a one-life round).
 		_bots: { Model },
+		_maid: Maid.Maid,
 	},
 	LastManStanding
 )) & BaseMode.BaseMode
@@ -67,7 +74,7 @@ export type LastManStanding = typeof(setmetatable(
 function LastManStanding.new(config: gameModeTypes.ModeConfig): LastManStanding
 	local self = setmetatable(BaseMode.new(config) :: any, LastManStanding)
 
-	self._alive = {} :: { [Player]: boolean }
+	self._alive = {} :: { [Instance]: string }
 	self._aliveCount = 0
 	self._armed = false
 	self._bots = {} :: { Model }
@@ -75,11 +82,14 @@ function LastManStanding.new(config: gameModeTypes.ModeConfig): LastManStanding
 	return self :: LastManStanding
 end
 
--- Begins tracking a real player as alive and arms the death that eliminates
--- them. Idempotent: the match-start sweep and the CharacterAdded signal can both
--- reach a player present at Start.
-function LastManStanding._trackPlayer(self: LastManStanding, player: Player, char: Model)
-	if self._alive[player] then
+-- Begins tracking a combatant (a real player or a bot rig) as alive and arms
+-- the death that eliminates them. `combatant` is the Player for a human or the
+-- rig Model for a bot — it doubles as the live-set key AND the maid key, so the
+-- elimination path is identical for both. `name` is what the HUD shows on a win.
+-- Idempotent: the match-start sweep and the CharacterAdded signal can both reach
+-- a player present at Start, and Start can re-reach a bot.
+function LastManStanding._track(self: LastManStanding, combatant: Instance, char: Model, name: string)
+	if self._alive[combatant] then
 		return
 	end
 
@@ -88,26 +98,27 @@ function LastManStanding._trackPlayer(self: LastManStanding, player: Player, cha
 		return
 	end
 
-	self._alive[player] = true
+	self._alive[combatant] = name
 	self._aliveCount += 1
 	if self._aliveCount >= 2 then
 		self._armed = true -- the round became a real contest
 	end
 
 	-- Died (not the kill signal) covers every elimination cause — a rival's
-	-- shot, a fall, a reset. Keyed in the maid by player so a leave/Stop drops it.
-	self._maid["died_" .. player.UserId] = humanoid.Died:Connect(function()
-		self:_eliminate(player)
+	-- shot, a fall, a reset. Keyed in the maid by the combatant Instance so a
+	-- leave/death/Stop drops it.
+	self._maid[combatant] = humanoid.Died:Connect(function()
+		self:_eliminate(combatant)
 	end)
 end
 
-function LastManStanding._eliminate(self: LastManStanding, player: Player)
-	if not self._alive[player] then
+function LastManStanding._eliminate(self: LastManStanding, combatant: Instance)
+	if not self._alive[combatant] then
 		return
 	end
-	self._alive[player] = nil
+	self._alive[combatant] = nil
 	self._aliveCount -= 1
-	self._maid["died_" .. player.UserId] = nil
+	self._maid[combatant] = nil
 	self:_checkWin()
 end
 
@@ -119,19 +130,22 @@ function LastManStanding._checkWin(self: LastManStanding)
 	end
 
 	local winner: gameModeTypes.TeamId? = nil
-	for player in self._alive do
-		winner = player.Name -- ScoreState.winner is a plain string; the player name reads fine on the HUD
+	for _, name in self._alive do
+		winner = name -- ScoreState.winner is a plain string; player/bot name reads fine on the HUD
 	end
 	self._deps.endMatch(winner)
 end
 
 function LastManStanding.onCharacterAdded(self: LastManStanding, char: Model, player: Player?)
-	-- NOTE: intentionally does NOT chain BaseMode.onCharacterAdded — LMS hands out
-	-- no loadout (config.giveLoadout is false), survivors carry only the fist.
+	-- Chain BaseMode so LMS players get their profile loadout (config.giveLoadout
+	-- is true): the weapons come from each player's TeleportData profile, cloned
+	-- into StarterGear/Backpack by LoadoutService. The fist still spawns by default
+	-- (equipDefaultWeapon) as the no-Tool melee fallback.
+	BaseMode.onCharacterAdded(self, char, player)
 	if not player then
 		return
 	end
-	self:_trackPlayer(player, char)
+	self:_track(player, char, player.Name)
 end
 
 function LastManStanding.onPlayerRemoving(self: LastManStanding, player: Player)
@@ -161,6 +175,12 @@ function LastManStanding.Start(self: LastManStanding, payload: gameModeTypes.Mat
 	local botCount = payload.botCount or 0
 	if botCount > 0 then
 		self._bots = NpcSpawner.Spawn(botCount)
+		-- Track each rig as a one-life combatant so its death decrements the live
+		-- set and an all-bot round still reaches a last-standing winner. NpcSpawner
+		-- returns rigs already parented with a Humanoid, so _track wires Died now.
+		for _, rig in self._bots do
+			self:_track(rig, rig, rig.Name)
+		end
 	end
 end
 

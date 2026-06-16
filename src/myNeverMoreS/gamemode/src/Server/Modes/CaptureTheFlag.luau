@@ -29,12 +29,15 @@
 ]=]
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local getCharacterActor = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.utils.getCharacterActor)
 local GameModeConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.GameModeConstants)
+local LeaderboardConstants = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.LeaderboardConstants)
+local LeaderboardService = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.LeaderboardService)
 local TeamMode = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.Modes.TeamMode)
 local ZoneController = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Server.ZoneController)
 local gameModeTypes = require(ReplicatedStorage.Nevermore.Custom.gamemode.src.Shared.gameModeTypes)
@@ -179,6 +182,13 @@ function CaptureTheFlag._tickCaptures(self: CaptureTheFlag)
 			end
 
 			self._deps.addScore(teamId, GameModeConstants.CTF_POINTS_PER_CAPTURE)
+			-- Personal leaderboard credit: the carrier banks one flag. Only real
+			-- players get a registry; a bot carrier resolves nil and is a no-op.
+			local carrierPlayer = Players:GetPlayerFromCharacter(carrier)
+			if carrierPlayer then
+				local leaderboard = self._deps.serviceBag:GetService(LeaderboardService)
+				leaderboard:AddStat(carrierPlayer, LeaderboardConstants.STAT_FLAGS, 1)
+			end
 			-- Send the stolen flag home; this also untags the carrier.
 			heldFlag:ReturnToBase()
 		end
