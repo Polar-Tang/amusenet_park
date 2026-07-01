@@ -121,6 +121,20 @@ function Weapon.EquiTool(self: weaponTypes.WeaponContextClient, toolName: string
 	-- tree every step.
 	self._tool = self.Char:FindFirstChildOfClass("Tool")
 	self._aimPosition = self._tool and self._tool:FindFirstChild("AimPosition", true) or nil
+	-- The grip "Handle" Motor6D is created server-side ONLY when a Tool is present
+	-- (server Weapon.luau `if tool then`). Fist (the default weapon) has no Tool,
+	-- so no Handle ever appears under "Right Arm" -- an unconditional WaitForChild
+	-- would yield forever ("Infinite yield possible"). Gate on the Tool, and use a
+	-- timeout so a missing/slow grip never hangs the equip flow.
+	if self._tool then
+		self._handle = self._rigtArm:WaitForChild("Handle", 5) :: Motor6D?
+		self._handleC0Base = self._handle and self._handle.C0 or nil
+		self._handleC1Base = self._handle and self._handle.C1 or nil
+	else
+		self._handle = nil
+		self._handleC0Base = nil
+		self._handleC1Base = nil
+	end
 
 	-- Per-weapon client equip hook (CombatConfig.onEquipCBClient). May return a
 	-- teardown closure that we run on the next swap / unequip / destroy.
@@ -150,6 +164,11 @@ end
 function Weapon.GetAimPosition(self: weaponTypes.WeaponContextClient): Attachment?
 	return self._aimPosition
 end
+
+function Weapon.GetHandle(self: weaponTypes.WeaponContextClient): (Motor6D?, CFrame?, CFrame?)
+	return self._handle, self._handleC0Base, self._handleC1Base
+end
+
 
 function Weapon.GetTool(self: weaponTypes.WeaponContextClient): Tool?
 	return self._tool

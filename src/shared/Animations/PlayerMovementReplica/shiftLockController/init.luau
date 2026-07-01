@@ -12,7 +12,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local RS = game:GetService("ReplicatedStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local handHeadCamera = require(script.Parent.handHeadCamera)
+local HandHeadCamera = require(script.Parent.handHeadCamera)
 local Maid = require(ReplicatedStorage.Nevermore.Quenty.maid.Shared.Maid)
 local Spring = require(ReplicatedStorage.Nevermore.Quenty.spring.Shared.Spring)
 
@@ -47,12 +47,20 @@ local maid = Maid.new()
 -- [[ Functions ]]:
 
 --// Setup smooth shift lock on client (Run once and on a LocalScript)
-function SmoothShiftLock.new(CameraService, armedBinder)
+function SmoothShiftLock.new(CameraService, armedBinder, cameraHandler)
 	local self = setmetatable({}, SmoothShiftLock)
+	-- CameraStackService: sampled each frame for the camera CFrame (GetTopState).
 	self.CameraService = CameraService
+	-- CameraMediator: exposes ObserveIsFirstPerson, injected into handHeadCamera
+	-- so the rig driver knows whether to apply yaw to the shoulders (FP) or the
+	-- torso (TP). NOT the same object as CameraService above.
+	self._cameraHandler = cameraHandler
 	-- Injected by CameraMediator:Start. Held so handHeadCamera can read the
 	-- cached AimPosition attachment without per-frame FindFirstChild calls.
 	self._armedBinder = armedBinder
+	-- Resolves the rig Motor6Ds once per character and drives neck/shoulders
+	-- each render step; re-resolves itself across respawns.
+	self._handHeadCamera = HandHeadCamera.new()
 
 	-- Not yielding
 	task.spawn(function()
@@ -77,6 +85,8 @@ function SmoothShiftLock:CharacterAdded()
 	-- Character-scoped: the render loop re-resolves it lazily from the
 	-- "Armed" binder, so a stale (destroyed) WeaponClient must be dropped.
 	self._weaponClient = nil
+	-- Drop the stale client from the rig driver too (respawn-safe).
+	self._handHeadCamera:SetWeaponClient(nil)
 	--// Other
 	self.Camera = WorkspaceService.CurrentCamera
 	--// Setup
@@ -172,10 +182,11 @@ function SmoothShiftLock:ToggleShiftLock(enable: boolean)
 					self.RootPart.CFrame = CFrame.new(self.RootPart.Position) * CFrame.Angles(0, y, 0)
 				end
 			end
-			if not self._weaponClient then 
+			if not self._weaponClient then
 				self._weaponClient = self._armedBinder:Get(self.Character)
+				self._handHeadCamera:Init(self._weaponClient, self._cameraHandler)
 			end
-			handHeadCamera(delta, self._weaponClient)
+			self._handHeadCamera:Update(delta)
 
 			--// Stop
 			if not ENABLED then

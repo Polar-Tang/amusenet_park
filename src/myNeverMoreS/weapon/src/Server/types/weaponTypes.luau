@@ -292,16 +292,13 @@ export type AttackDistanceAbilityCLient = BaseAbility & {
 	special_attack: boolean?,
 	attackId: string,
 	weaponBinder: any,
-	_playerMoved: boolean,
+	-- Camera-recoil lifecycle (kick + wind-back state machine). Built
+	-- local-owner-only; nil for NPC-owned instances. See RecoilController.
+	_recoilController: any,
 	_lastPlayerCFrame: CFrame,
 	_currentTween: Tween?,
 	_restoreRecoilTween: RBXScriptConnection?,
 	_inputConnection: RBXScriptConnection?,
-	_lastShotTimestamp: number,
-	_recoilRestoreCFrame: CFrame?,
-	_recoilTimeoutThreshold: number,
-	_recoilCooldownController: any,
-	_recoilResetConnection: RBXScriptConnection?,
 	_movementBeganConnection: RBXScriptConnection?,
 	_movementEndedConnection: RBXScriptConnection?,
 	-- Active world-touch points used to pan the camera by hand (mobile). Keyed by
@@ -309,7 +306,6 @@ export type AttackDistanceAbilityCLient = BaseAbility & {
 	_dragTouches: { [InputObject]: boolean },
 	_dragBeganConnection: RBXScriptConnection?,
 	_dragEndedConnection: RBXScriptConnection?,
-	attackRow: number,
 	-- ===== Continuous-fire / auto-aim state (client) =====
 	-- Firing runs while EITHER the shot button is held (`_fireButtonHeld`) OR the
 	-- always-on auto-aim scan has a target locked (`_fireAimLocked`). `_firing`
@@ -333,10 +329,6 @@ export type AttackDistanceAbilityCLient = BaseAbility & {
 		methodName: string,
 		model: Model
 	) -> BasePart,
-	_isContinuousShot: (self: AttackDistanceAbility, timestamp: number) -> boolean,
-	_scheduleRecoilReset: (self: AttackDistanceAbility) -> (),
-	_restoreRecoil: (self: AttackDistanceAbility) -> (),
-	_createRecoilStrike: (self: AttackDistanceAbility) -> (),
 
 	-- ===== Continuous-fire / auto-aim runtime (client) =====
 	-- `Start` is cascaded from AbstractStrategy:Start on equip and stands up the
@@ -360,7 +352,6 @@ export type AttackDistanceAbilityCLient = BaseAbility & {
 	_canShoot: (self: AttackDistanceAbility) -> boolean,
 	_shot: (self: AttackDistanceAbility) -> (),
 	_getBinder: (self: AttackDistanceAbility) -> (),
-	recoil: (self: AttackDistanceAbility) -> (),
 }
 
 --?? DEFENSE ABILITY ??||

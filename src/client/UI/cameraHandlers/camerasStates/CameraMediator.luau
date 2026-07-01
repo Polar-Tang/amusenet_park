@@ -61,7 +61,7 @@ function CameraMediator:Start(AttacksBinders)
 	-- AimPosition off it every frame instead of walking the character tree.
 
 	local armedBinder = self._serviceBag:GetService(_G.BinderProvider):Get("Armed")
-	self._shiftLockControllerShit = shiftLockController.new(CameraService, armedBinder)
+	self._shiftLockControllerShit = shiftLockController.new(CameraService, armedBinder, self)
 
 	-- Persistent camera state + effects: the mediator owns _cameraState and
 	-- _recoilCombo/_lerpCombo for the lifetime of the session. Mode strategies

@@ -4,7 +4,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
-local CooldownController = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.CooldownController)
+local RecoilController = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Client.Utils.RecoilController)
 local EffectTypes = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Server.Utils.EffectTypes)
 local BaseAbility = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Abilities.BaseAbility)
 local Constants = require(ReplicatedStorage.Nevermore.Custom.abilities.src.Shared.Constanst)
@@ -89,13 +89,9 @@ function AttackDistanceAbility.new(config: construnctor)
 	self._isLocalOwner = self.player == Players.LocalPlayer
 	self.customCamera = config.customCamera
 
-	self._lastShotTimestamp = 0
-	self._recoilRestoreCFrame = nil
-	self._recoilTimeoutThreshold = 0.01
-	self._recoilCooldownController = CooldownController.new(self.character, self._serviceBag)
-	self._recoilResetConnection = nil
-
-	self.attackRow = 0
+	-- Camera-recoil lifecycle (kick + wind-back state machine) lives in its own
+	-- controller; built local-owner-only below (NPCs never kick a real camera).
+	self._recoilController = nil
 
 	-- Continuous-fire state. Firing runs while EITHER the shot button is held
 	-- (`_fireButtonHeld`, PC mouse + mobile tap) OR the always-on auto-aim scan
@@ -107,8 +103,6 @@ function AttackDistanceAbility.new(config: construnctor)
 	self._fireAimLocked = false
 	self._firing = false
 	self._aimAssistActive = false
-
-	self._playerMoved = false
 
 	-- Touch points the player is using to manually pan the camera (mobile).
 	-- The auto-aim hard lock yields while any of these is active so the drag
@@ -125,10 +119,20 @@ function AttackDistanceAbility.new(config: construnctor)
 		return self :: AttackDistanceAbilityType
 	end
 
+	-- Camera-recoil lifecycle (kick + wind-back state machine), local owner only.
+	self._recoilController = RecoilController.new({
+		character = self.character,
+		serviceBag = self._serviceBag,
+		weaponStats = self.weapon_stats,
+		cooldown = self._cooldown,
+		isMovementKeyDown = isAnyMovementKeyDown,
+	})
+	self._maid:GiveTask(self._recoilController)
+
 	-- iF PLAYER MOVES THE MOUSE(SO CAMERA) COMPLETLY STOPS THE LERPING
 	self._inputConnection = UserInputService.InputChanged:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseMovement then
-			self._playerMoved = true
+			self._recoilController:SetPlayerMoved(true)
 
 			_G.CurrentCameraHandler:StopLerpCamera()
 		end
@@ -142,7 +146,7 @@ function AttackDistanceAbility.new(config: construnctor)
 			return
 		end
 		if MOVEMENT_KEYS[input.KeyCode] then
-			self._playerMoved = true
+			self._recoilController:SetPlayerMoved(true)
 		end
 	end)
 	self._maid:GiveTask(self._movementBeganConnection)
@@ -151,7 +155,7 @@ function AttackDistanceAbility.new(config: construnctor)
 	-- of two held keys (e.g. W+D → release D) must keep _playerMoved true.
 	self._movementEndedConnection = UserInputService.InputEnded:Connect(function(input)
 		if MOVEMENT_KEYS[input.KeyCode] and not isAnyMovementKeyDown() then
-			self._playerMoved = false
+			self._recoilController:SetPlayerMoved(false)
 		end
 	end)
 	self._maid:GiveTask(self._movementEndedConnection)
@@ -333,71 +337,6 @@ function AttackDistanceAbility._updateFire(self: AttackDistanceAbilityType)
 	end
 end
 
-function AttackDistanceAbility._isContinuousShot(self: AttackDistanceAbilityType, timestamp: number)
-	local last = self._lastShotTimestamp
-	local threshold = 0.1
-	local cooldown = self._cooldown
-	return last > 0 and timestamp - last <= (cooldown + threshold)
-end
-
-function AttackDistanceAbility._restoreRecoil(self: AttackDistanceAbilityType)
-	local cameraHandler = _G.CurrentCameraHandler
-	-- Reset winds back only the recoiler's own pitch/yaw contribution; the
-	-- player's mouse rotation never flowed through it, so this is safe
-	-- regardless of _playerMoved (which is kept around, along with
-	-- _recoilRestoreCFrame, for a future return to the LerpCamera-based
-	-- restore — see CameraHandlerBase:LerpCamera).
-	if cameraHandler and cameraHandler.resetRecoil then
-		cameraHandler:resetRecoil()
-	end
-
-	self._recoilRestoreCFrame = nil
-	self._playerMoved = isAnyMovementKeyDown()
-
-	if self._recoilResetConnection then
-		self._recoilResetConnection:Disconnect()
-		self._recoilResetConnection = nil
-	end
-	local controller = self._recoilCooldownController:getCD()
-	if controller then
-		-- reset optional controller to let next shooting cycle recreate
-		-- controller cancellation performed by its own model end state
-	end
-end
-
-function AttackDistanceAbility._createRecoilStrike(self: AttackDistanceAbilityType)
-	self._recoilCooldownController:init(self._cooldown + 0.15)
-	task.defer(function()
-		local c = self._recoilCooldownController:getCD()
-		if not c then
-			return
-		end
-		if self._recoilResetConnection then
-			self._recoilResetConnection:Disconnect()
-		end
-		self._recoilResetConnection = c.Done:Connect(function()
-			-- The connection may fire even when the armed in unequip
-			if self._restoreRecoil then 
-				self:_restoreRecoil()
-				
-			end
-		end)
-		-- self._maid:GiveTask(self._recoilCooldownController)
-	end)
-end
-
-function AttackDistanceAbility._scheduleRecoilReset(self: AttackDistanceAbilityType)
-	local controller = self._recoilCooldownController:getCD()
-	if not controller then
-		self:_createRecoilStrike()
-	else
-		if self._cooldown == 3 then
-			print()
-		end
-		self._recoilCooldownController:ResetTo(self._cooldown + 0.1)
-	end
-end
-
 function AttackDistanceAbility.SetAttributes(self: AttackDistanceAbilityType)
 	local CHAR = self.character
 	local HUM = self.humanoid
@@ -439,33 +378,13 @@ function AttackDistanceAbility._shot(self: AttackDistanceAbilityType)
 	-- chosen "hard lock"). The shot still fires from `origin` below.
 	-- NPC-owned instances skip it too: there is no real camera to kick.
 	if self._isLocalOwner and not self._aimAssistActive then
-		-- mutex: a fired shot ends any in-flight lerp before kicking recoil
-		if _G.CurrentCameraHandler then
-			_G.CurrentCameraHandler:StopLerpCamera()
-		end
-
-		self:recoil()
-
-		if not self:_isContinuousShot(now) then
-			self._recoilRestoreCFrame = origin
-
-			self:_createRecoilStrike()
-			self.attackRow = 1
-		else
-			self.attackRow += 1
-			self:_scheduleRecoilReset()
-		end
-
-		-- Update restore point if player moved camera during shot
-		if self._playerMoved then
-			self._recoilRestoreCFrame = origin
-			-- Re-derive from physical key state instead of blindly setting false:
-			-- InputBegan only fires once per press, so a still-held movement key
-			-- would otherwise be lost until release+repress.
-			self._playerMoved = isAnyMovementKeyDown()
-		end
+		self._recoilController:HandleShot(origin, now)
+	elseif self._recoilController then
+		-- Auto-aim hard lock owns the camera, so recoil is hidden — but keep the
+		-- last-shot clock current so the first manual shot after the lock drops
+		-- still classifies as continuous/fresh correctly.
+		self._recoilController:NotifyShot(now)
 	end
-	self._lastShotTimestamp = now
 
 	local rayDirections = getRayDirections(origin, raysPerShot, math.rad(spread), now)
 	for index, direction in rayDirections do
@@ -497,25 +416,6 @@ function AttackDistanceAbility._shot(self: AttackDistanceAbilityType)
 	)
 
 	drawRayResults(origin.Position, rayResults)
-end
-
-local random = Random.new()
-function AttackDistanceAbility.recoil(self: AttackDistanceAbilityType)
-	local recoilMin = self.weapon_stats.recoilMin
-	local recoilMax = self.weapon_stats.recoilMax
-
-	local xDif = recoilMax.X - recoilMin.X
-	local yDif = recoilMax.Y - recoilMin.Y
-	local x = recoilMin.X + random:NextNumber() * xDif
-	local y = recoilMin.Y + random:NextNumber() * yDif
-
-	local recoil = Vector2.new(math.rad(-x), math.rad(y))
-	local rise = self.weapon_stats.recoilRise
-
-	local cameraHandler = _G.CurrentCameraHandler
-	if cameraHandler and cameraHandler.recoil then
-		cameraHandler:recoil(recoil, rise)
-	end
 end
 
 -- Dry-fire gate, mirroring the server's authoritative check in

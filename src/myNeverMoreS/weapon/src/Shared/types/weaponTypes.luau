@@ -165,10 +165,18 @@ export type WeaponContextClient = WeaponContextBase & {
 	_cameraMediator: any,
 	_tool: Tool?,
 	_aimPosition: Attachment?,
+	-- Cached "Right Arm" part and the server-created grip "Handle" Motor6D (+ its
+	-- base C0/C1). The Handle only exists while a Tool is equipped, so all three
+	-- are nil for Tool-less weapons (fist).
+	_rigtArm: BasePart,
+	_handle: Motor6D?,
+	_handleC0Base: CFrame?,
+	_handleC1Base: CFrame?,
 
 	ToggleFirstPerson: (self: WeaponContextClient) -> (),
 	GetAimPosition: (self: WeaponContextClient) -> Attachment?,
 	GetTool: (self: WeaponContextClient) -> Tool?,
+	GetHandle: (self: WeaponContextClient) -> (Motor6D?, CFrame?, CFrame?),
 	GetCenterAimToCamera: (self: WeaponContextClient) -> boolean,
 	GetGripC0: (self: WeaponContextClient) -> CFrame,
 }
