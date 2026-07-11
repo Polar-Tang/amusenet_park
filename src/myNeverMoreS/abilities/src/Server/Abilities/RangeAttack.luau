@@ -87,8 +87,13 @@ function AttackDistanceAbility.Execute(
 	self: weaponTypes.AttackDistanceAbility,
 	params
 )
+	-- The reason string propagates up through WeaponBase:Execute ->
+	-- Weapon.Execute so AttckInvoker can count CD-rejected NPC shots as
+	-- fire-rate cheat evidence (a legit brain client paces on GetShootInterval
+	-- and rarely lands here). Reload/empty returns below stay bare: the NPC
+	-- brain dry-fires those legitimately, they are not evidence.
 	if self:GetCD() then
-		return
+		return Constants.REJECT_REASON_COOLDOWN
 	end
 
 	-- Ammo gate (authoritative). The client early-returns on empty too, but a

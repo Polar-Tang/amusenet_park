@@ -22,7 +22,7 @@ type WeaponBase = {
 	_initialized: boolean,
 	Init: (self: WeaponBase) -> (),
 	createAbilitiesFromKey: (self: WeaponBase, attacks: AbilityTable) -> AbilityTable,
-	Execute: (self: WeaponBase, action: EnumItem | { Name: string }, params: any) -> (),
+	Execute: (self: WeaponBase, action: EnumItem | { Name: string }, params: any) -> string?,
 }
 
 
@@ -106,8 +106,10 @@ function WeaponBase:Execute(action: EnumItem | { Name: string }, params)
 		return
 	end
 
-	-- `command` already carries its spec via createAbilitiesFromKey
-	command:Execute(params)
+	-- `command` already carries its spec via createAbilitiesFromKey. Abilities
+	-- may return a rejection reason (Constants.REJECT_REASON_*) that AttckInvoker
+	-- consumes as cheat evidence — pass it through.
+	return command:Execute(params)
 end
 
 function WeaponBase:GetAction(action: string)

@@ -62,6 +62,9 @@ local LeaderboardService = require(RS.Nevermore.Custom.gamemode.src.Server.Leade
 -- A ServiceBag service, NOT a free-standing Script: its require chain reaches
 -- loader-dependent Quenty modules, which only load after bootstrapGame above.
 local MatchListener = require(SSS.Server.NPC.MatchListener)
+-- Anti-cheat escalation for the client-driven NPC brains (spoof / fire-rate
+-- reports arrive from AttckInvoker; see the module docstring).
+local ModerationService = require(SSS.Server.Moderation.ModerationService)
 
 ----- ------------------------ START SERVICEBAG -----------------------------
 serviceBag:GetService(AttacksBinders)
@@ -69,6 +72,7 @@ serviceBag:GetService(QuestHandler)
 serviceBag:GetService(GameModeService)
 serviceBag:GetService(LeaderboardService)
 serviceBag:GetService(MatchListener)
+serviceBag:GetService(ModerationService)
 serviceBag:Init()
 
 serviceBag:Start()

@@ -73,7 +73,9 @@ function Weapon.Execute(self: weaponTypes.WeaponContext, action, params)
 	if not self._weapon then
 		return
 	end
-	self._weapon:Execute(action, params)
+	-- Rejection reasons (Constants.REJECT_REASON_*) flow up to AttckInvoker,
+	-- which counts CD-rejected NPC-routed shots as fire-rate cheat evidence.
+	return self._weapon:Execute(action, params)
 end
 
 function Weapon.RegisterAttackEffect(self: weaponTypes.WeaponContext, attackId, ctx)

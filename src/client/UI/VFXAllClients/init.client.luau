@@ -217,29 +217,7 @@ RS.Shared.RemoteEvents.VFX.OnClientEvent:Connect(function(data)
 		print("Hrp ", hrp)
 		start.Position = data.Pos
 		finish.Position = hrp.Position + hrp.CFrame.LookVector * 40
-		--[[
-			do
-				local BEAM_LENGTH = 80
-	
-				local BEAM_WIDTH = 10
-	
-				local invisiblePart = Instance.new("Part")
-				invisiblePart.Anchored = true
-				invisiblePart.Transparency = 1
-				invisiblePart.CanCollide = false
-	
-				-- Width / Height / Length
-				invisiblePart.Size = Vector3.new(BEAM_WIDTH, BEAM_WIDTH, BEAM_LENGTH)
-	
-				-- CENTER the hitbox between start and finish
-				invisiblePart.CFrame = hrp.CFrame * CFrame.new(0, 0, -40 / 2) * CFrame.Angles(0, math.rad(90), 0)
-	
-				invisiblePart.Parent = workspace
-				CollectionService:AddTag(invisiblePart, data.attackId)
-				Debris:AddItem(invisiblePart, 2)
-			end
-		]]
-
+		
 		start.Parent = workspace
 		finish.Parent = workspace
 

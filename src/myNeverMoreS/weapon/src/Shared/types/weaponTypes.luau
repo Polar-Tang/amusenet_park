@@ -17,7 +17,9 @@ export type WeaponStrategy = {
 	_createAbilities: (self: WeaponStrategy, attacks: ClientAbilityTable) -> ClientAbilityTable,
 	Init: (self: WeaponStrategy) -> WeaponStrategy,
 	createAbilitiesFromKey: (self: WeaponStrategy, key: string) -> ClientAbilityTable,
-	Execute: (self: WeaponStrategy, action: any, params: any) -> (),
+	-- May return a rejection reason (Constants.REJECT_REASON_*) — server-only
+	-- signal consumed by AttckInvoker as cheat evidence; nil on success/client.
+	Execute: (self: WeaponStrategy, action: any, params: any) -> string?,
 	GetAction: (self: WeaponStrategy, action: string) -> any,
 	GetStrategy: (self: WeaponStrategy) -> WeaponStrategy,
 	Start: (self: WeaponStrategy) -> (),
@@ -147,7 +149,7 @@ export type WeaponContextBase = {
 	_onEquipCleanup: (() -> ())?,
 
 	-- Shared methods (same signature on both client and server)
-	Execute: (self: WeaponContextBase, action: any, params: any?) -> (),
+	Execute: (self: WeaponContextBase, action: any, params: any?) -> string?,
 	GetStrategy: (self: WeaponContextBase) -> WeaponStrategy?,
 	GetAction: (self: WeaponContextBase, action: any) -> any,
 	EquiTool: (self: WeaponContextBase, toolName: string) -> (),

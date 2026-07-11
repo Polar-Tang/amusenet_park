@@ -72,6 +72,7 @@ We asume a player is cheating by counting the npc shots, if he's not shooting in
 What do you think?
 
 ### Adding a player to active games
+-> implementation plan: TODO_midjoin.md (this repo, shooter side) + amusenet_lobby/TODO_midjoin.md (lobby side)
 How could we consider active server with a game already running? The game modes in shooter have:
 ```
 matchMaid:GiveTask(Players.PlayerAdded:Connect(onPlayerAdded))

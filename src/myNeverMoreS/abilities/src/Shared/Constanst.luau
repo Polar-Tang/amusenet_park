@@ -119,4 +119,10 @@ module.NPC_GOALS_TAG = "NPC_goals"
 module.MATCH_FOUND_TOPIC= "MatchFound"
 module.LOBBY_PLACEID = 82965737458659
 
+-- Server ability Execute rejection reasons, propagated up through
+-- WeaponBase:Execute -> Weapon.Execute so AttckInvoker can report cheat
+-- evidence (a CD-rejected NPC-routed shot = the brain owner fired faster
+-- than the weapon allows).
+module.REJECT_REASON_COOLDOWN = "cooldown"
+
 return module

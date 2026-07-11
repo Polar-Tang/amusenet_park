@@ -200,6 +200,16 @@ function NPCServer._electBrainOwner(self: NPCServer, leaving: Player?)
 	self:_setNetworkOwner(elected)
 end
 
+--[=[
+	Public moderation hook: hands the brain to another client (or back to the
+	server when no candidate remains). `exclude` is never re-elected — same
+	contract as the PlayerRemoving path. Used by ModerationService to strip a
+	flagged player of every NPC it owns without kicking it.
+]=]
+function NPCServer.ReelectBrainOwner(self: NPCServer, exclude: Player?)
+	self:_electBrainOwner(exclude)
+end
+
 function NPCServer.Destroy(self: NPCServer)
 	self._maid:DoCleaning()
 	self.char:SetAttribute(NpcConstants.BRAIN_OWNER_ATTRIBUTE, nil)
